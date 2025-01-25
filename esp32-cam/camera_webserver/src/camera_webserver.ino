@@ -12,7 +12,7 @@
 // Enter your WiFi credentials
 // ===========================
 const char *ssid = "MikroTik-ED936E";
-const char *password = "";
+const char *password = "boonofoxboonofox";
 
 void startCameraServer();
 void setupLedFlash(int pin);
