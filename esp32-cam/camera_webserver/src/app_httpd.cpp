@@ -1,17 +1,4 @@
-// Copyright 2015-2016 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-#include "esp32-hal-ledc.h"
+// Copyright BSD
 #include "esp_camera.h"
 #include "esp_http_server.h"
 #include "esp_timer.h"
@@ -24,19 +11,8 @@
 #include "esp32-hal-log.h"
 #endif
 
-// Enable LED FLASH setting
+// LED Illuminator is always disabled
 #define CONFIG_LED_ILLUMINATOR_ENABLED 0
-
-// LED FLASH setup
-#if CONFIG_LED_ILLUMINATOR_ENABLED
-
-#define LED_LEDC_GPIO 22 // configure LED pin
-#define CONFIG_LED_MAX_INTENSITY 255
-
-int led_duty = 0;
-bool isStreaming = false;
-
-#endif
 
 typedef struct {
   httpd_req_t *req;
@@ -90,19 +66,6 @@ static int ra_filter_run(ra_filter_t *filter, int value) {
     filter->count++;
   }
   return filter->sum / filter->count;
-}
-#endif
-
-#if CONFIG_LED_ILLUMINATOR_ENABLED
-void enable_led(bool en) { // Turn LED On or Off
-  int duty = en ? led_duty : 0;
-  if (en && isStreaming && (led_duty > CONFIG_LED_MAX_INTENSITY)) {
-    duty = CONFIG_LED_MAX_INTENSITY;
-  }
-  ledcWrite(LED_LEDC_GPIO, duty);
-  // ledc_set_duty(CONFIG_LED_LEDC_SPEED_MODE, CONFIG_LED_LEDC_CHANNEL, duty);
-  // ledc_update_duty(CONFIG_LED_LEDC_SPEED_MODE, CONFIG_LED_LEDC_CHANNEL);
-  log_i("Set LED intensity to %d", duty);
 }
 #endif
 
@@ -166,17 +129,7 @@ static esp_err_t capture_handler(httpd_req_t *req) {
   int64_t fr_start = esp_timer_get_time();
 #endif
 
-#if CONFIG_LED_ILLUMINATOR_ENABLED
-  enable_led(true);
-  vTaskDelay(150 /
-             portTICK_PERIOD_MS); // The LED needs to be turned on ~150ms before
-                                  // the call to esp_camera_fb_get()
-  fb = esp_camera_fb_get(); // or it won't be visible in the frame. A better way
-                            // to do this is needed.
-  enable_led(false);
-#else
   fb = esp_camera_fb_get();
-#endif
 
   if (!fb) {
     log_e("Camera capture failed");
@@ -224,7 +177,7 @@ static esp_err_t stream_handler(httpd_req_t *req) {
   esp_err_t res = ESP_OK;
   size_t _jpg_buf_len = 0;
   uint8_t *_jpg_buf = NULL;
-  char *part_buf[128];
+  char part_buf[128];
 
   static int64_t last_frame = 0;
   if (!last_frame) {
@@ -238,11 +191,6 @@ static esp_err_t stream_handler(httpd_req_t *req) {
 
   httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
   httpd_resp_set_hdr(req, "X-Framerate", "60");
-
-#if CONFIG_LED_ILLUMINATOR_ENABLED
-  isStreaming = true;
-  enable_led(true);
-#endif
 
   while (true) {
     fb = esp_camera_fb_get();
@@ -270,9 +218,10 @@ static esp_err_t stream_handler(httpd_req_t *req) {
                                   strlen(_STREAM_BOUNDARY));
     }
     if (res == ESP_OK) {
-      size_t hlen = snprintf((char *)part_buf, 128, _STREAM_PART, _jpg_buf_len,
-                             _timestamp.tv_sec, _timestamp.tv_usec);
-      res = httpd_resp_send_chunk(req, (const char *)part_buf, hlen);
+      size_t hlen =
+          snprintf(part_buf, sizeof(part_buf), _STREAM_PART, _jpg_buf_len,
+                   _timestamp.tv_sec, _timestamp.tv_usec);
+      res = httpd_resp_send_chunk(req, part_buf, hlen);
     }
     if (res == ESP_OK) {
       res = httpd_resp_send_chunk(req, (const char *)_jpg_buf, _jpg_buf_len);
@@ -301,11 +250,6 @@ static esp_err_t stream_handler(httpd_req_t *req) {
           1000.0 / (uint32_t)frame_time, avg_frame_time,
           1000.0 / avg_frame_time);
   }
-
-#if CONFIG_LED_ILLUMINATOR_ENABLED
-  isStreaming = false;
-  enable_led(false);
-#endif
 
   return res;
 }
@@ -402,16 +346,7 @@ static esp_err_t cmd_handler(httpd_req_t *req) {
     res = s->set_wb_mode(s, val);
   } else if (!strcmp(variable, "ae_level")) {
     res = s->set_ae_level(s, val);
-  }
-#if CONFIG_LED_ILLUMINATOR_ENABLED
-  else if (!strcmp(variable, "led_intensity")) {
-    led_duty = val;
-    if (isStreaming) {
-      enable_led(true);
-    }
-  }
-#endif
-  else {
+  } else {
     log_i("Unknown command: %s", variable);
     res = -1;
   }
@@ -609,27 +544,6 @@ static esp_err_t win_handler(httpd_req_t *req) {
   return httpd_resp_send(req, NULL, 0);
 }
 
-// static esp_err_t index_handler(httpd_req_t *req) {
-//   httpd_resp_set_type(req, "text/html");
-//   httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
-//   sensor_t *s = esp_camera_sensor_get();
-//   if (s != NULL) {
-//     if (s->id.PID == OV3660_PID) {
-//       return httpd_resp_send(req, (const char *)index_ov3660_html_gz,
-//                              index_ov3660_html_gz_len);
-//     } else if (s->id.PID == OV5640_PID) {
-//       return httpd_resp_send(req, (const char *)index_ov5640_html_gz,
-//                              index_ov5640_html_gz_len);
-//     } else {
-//       return httpd_resp_send(req, (const char *)index_ov2640_html_gz,
-//                              index_ov2640_html_gz_len);
-//     }
-//   } else {
-//     log_e("Camera sensor not found");
-//     return httpd_resp_send_500(req);
-//   }
-// }
-
 static esp_err_t index_handler(httpd_req_t *req) {
   httpd_resp_set_type(req, "text/html");
   httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
@@ -660,7 +574,7 @@ void startCameraServer() {
 #endif
   };
 
-  // Only register the "capture" and "stream" endpoints
+  // Register only the "capture" and "stream" endpoints
   httpd_uri_t capture_uri = {.uri = "/capture",
                              .method = HTTP_GET,
                              .handler = capture_handler,
@@ -688,9 +602,5 @@ void startCameraServer() {
 }
 
 void setupLedFlash(int pin) {
-#if CONFIG_LED_ILLUMINATOR_ENABLED
-  ledcAttach(pin, 5000, 8);
-#else
   log_i("LED flash is disabled -> CONFIG_LED_ILLUMINATOR_ENABLED = 0");
-#endif
 }
