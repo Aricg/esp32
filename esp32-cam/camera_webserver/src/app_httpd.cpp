@@ -429,74 +429,12 @@ static int print_reg(char *p, sensor_t *s, uint16_t reg, uint32_t mask) {
 }
 
 static esp_err_t status_handler(httpd_req_t *req) {
-  static char json_response[1024];
+  static char json_response[256];
 
-  sensor_t *s = esp_camera_sensor_get();
-  char *p = json_response;
-  *p++ = '{';
+  // Simplified JSON response with only essential info
+  snprintf(json_response, sizeof(json_response),
+           "{\"stream\":\"/stream\",\"capture\":\"/capture\"}");
 
-  if (s->id.PID == OV5640_PID || s->id.PID == OV3660_PID) {
-    for (int reg = 0x3400; reg < 0x3406; reg += 2) {
-      p += print_reg(p, s, reg, 0xFFF); // 12 bit
-    }
-    p += print_reg(p, s, 0x3406, 0xFF);
-
-    p += print_reg(p, s, 0x3500, 0xFFFF0); // 16 bit
-    p += print_reg(p, s, 0x3503, 0xFF);
-    p += print_reg(p, s, 0x350a, 0x3FF);  // 10 bit
-    p += print_reg(p, s, 0x350c, 0xFFFF); // 16 bit
-
-    for (int reg = 0x5480; reg <= 0x5490; reg++) {
-      p += print_reg(p, s, reg, 0xFF);
-    }
-
-    for (int reg = 0x5380; reg <= 0x538b; reg++) {
-      p += print_reg(p, s, reg, 0xFF);
-    }
-
-    for (int reg = 0x5580; reg < 0x558a; reg++) {
-      p += print_reg(p, s, reg, 0xFF);
-    }
-    p += print_reg(p, s, 0x558a, 0x1FF); // 9 bit
-  } else if (s->id.PID == OV2640_PID) {
-    p += print_reg(p, s, 0xd3, 0xFF);
-    p += print_reg(p, s, 0x111, 0xFF);
-    p += print_reg(p, s, 0x132, 0xFF);
-  }
-
-  p += sprintf(p, "\"xclk\":%u,", s->xclk_freq_hz / 1000000);
-  p += sprintf(p, "\"pixformat\":%u,", s->pixformat);
-  p += sprintf(p, "\"framesize\":%u,", s->status.framesize);
-  p += sprintf(p, "\"quality\":%u,", s->status.quality);
-  p += sprintf(p, "\"brightness\":%d,", s->status.brightness);
-  p += sprintf(p, "\"contrast\":%d,", s->status.contrast);
-  p += sprintf(p, "\"saturation\":%d,", s->status.saturation);
-  p += sprintf(p, "\"sharpness\":%d,", s->status.sharpness);
-  p += sprintf(p, "\"special_effect\":%u,", s->status.special_effect);
-  p += sprintf(p, "\"wb_mode\":%u,", s->status.wb_mode);
-  p += sprintf(p, "\"awb\":%u,", s->status.awb);
-  p += sprintf(p, "\"awb_gain\":%u,", s->status.awb_gain);
-  p += sprintf(p, "\"aec\":%u,", s->status.aec);
-  p += sprintf(p, "\"aec2\":%u,", s->status.aec2);
-  p += sprintf(p, "\"ae_level\":%d,", s->status.ae_level);
-  p += sprintf(p, "\"aec_value\":%u,", s->status.aec_value);
-  p += sprintf(p, "\"agc\":%u,", s->status.agc);
-  p += sprintf(p, "\"agc_gain\":%u,", s->status.agc_gain);
-  p += sprintf(p, "\"gainceiling\":%u,", s->status.gainceiling);
-  p += sprintf(p, "\"bpc\":%u,", s->status.bpc);
-  p += sprintf(p, "\"wpc\":%u,", s->status.wpc);
-  p += sprintf(p, "\"raw_gma\":%u,", s->status.raw_gma);
-  p += sprintf(p, "\"lenc\":%u,", s->status.lenc);
-  p += sprintf(p, "\"hmirror\":%u,", s->status.hmirror);
-  p += sprintf(p, "\"dcw\":%u,", s->status.dcw);
-  p += sprintf(p, "\"colorbar\":%u", s->status.colorbar);
-#if CONFIG_LED_ILLUMINATOR_ENABLED
-  p += sprintf(p, ",\"led_intensity\":%u", led_duty);
-#else
-  p += sprintf(p, ",\"led_intensity\":%d", -1);
-#endif
-  *p++ = '}';
-  *p++ = 0;
   httpd_resp_set_type(req, "application/json");
   httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
   return httpd_resp_send(req, json_response, strlen(json_response));
@@ -671,25 +609,39 @@ static esp_err_t win_handler(httpd_req_t *req) {
   return httpd_resp_send(req, NULL, 0);
 }
 
+// static esp_err_t index_handler(httpd_req_t *req) {
+//   httpd_resp_set_type(req, "text/html");
+//   httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
+//   sensor_t *s = esp_camera_sensor_get();
+//   if (s != NULL) {
+//     if (s->id.PID == OV3660_PID) {
+//       return httpd_resp_send(req, (const char *)index_ov3660_html_gz,
+//                              index_ov3660_html_gz_len);
+//     } else if (s->id.PID == OV5640_PID) {
+//       return httpd_resp_send(req, (const char *)index_ov5640_html_gz,
+//                              index_ov5640_html_gz_len);
+//     } else {
+//       return httpd_resp_send(req, (const char *)index_ov2640_html_gz,
+//                              index_ov2640_html_gz_len);
+//     }
+//   } else {
+//     log_e("Camera sensor not found");
+//     return httpd_resp_send_500(req);
+//   }
+// }
+
 static esp_err_t index_handler(httpd_req_t *req) {
   httpd_resp_set_type(req, "text/html");
   httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
+
   sensor_t *s = esp_camera_sensor_get();
-  if (s != NULL) {
-    if (s->id.PID == OV3660_PID) {
-      return httpd_resp_send(req, (const char *)index_ov3660_html_gz,
-                             index_ov3660_html_gz_len);
-    } else if (s->id.PID == OV5640_PID) {
-      return httpd_resp_send(req, (const char *)index_ov5640_html_gz,
-                             index_ov5640_html_gz_len);
-    } else {
-      return httpd_resp_send(req, (const char *)index_ov2640_html_gz,
-                             index_ov2640_html_gz_len);
-    }
-  } else {
+  if (!s) {
     log_e("Camera sensor not found");
     return httpd_resp_send_500(req);
   }
+
+  return httpd_resp_send(req, (const char *)index_ov2640_html_gz,
+                         index_ov2640_html_gz_len);
 }
 
 void startCameraServer() {
