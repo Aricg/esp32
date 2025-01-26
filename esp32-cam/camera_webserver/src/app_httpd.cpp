@@ -11,13 +11,13 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-#include "camera_index.h"
 #include "esp32-hal-ledc.h"
 #include "esp_camera.h"
 #include "esp_http_server.h"
 #include "esp_timer.h"
 #include "fb_gfx.h"
 #include "img_converters.h"
+#include "index_ov2640.h"
 #include "sdkconfig.h"
 
 #if defined(ARDUINO_ARCH_ESP32) && defined(CONFIG_ARDUHAL_ESP_LOG)
