@@ -3,7 +3,7 @@
 #include "esp_system.h"
 #include "FS.h"
 #include "SD_MMC.h"
-
+#include <time.h>
 
 // ===================
 // Select camera model
@@ -16,6 +16,9 @@
 // ===========================
 const char *ssid = "MikroTik-ED936E";
 const char *password = "boonofoxboonofox";
+const char* ntpServer = "pool.ntp.org";
+const long gmtOffset_sec = 0;       // adjust if you need local time
+const int daylightOffset_sec = 0;   // adjust if you have DST
 
 void startCameraServer();
 void setupLedFlash(int pin);
@@ -123,11 +126,27 @@ void setup() {
   Serial.println("");
   Serial.println("WiFi connected");
 
+  // **Now** sync time with NTP
+  setupTimeViaNTP();
+
   startCameraServer();
 
   Serial.print("Camera Ready! Use 'http://");
   Serial.print(WiFi.localIP());
   Serial.println("' to connect");
+}
+
+
+void setupTimeViaNTP() {
+  configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+  // Wait until time is set
+  time_t now = 0;
+  while (now < 1672531200) { // some date in 2023 or later
+    delay(500);
+    Serial.print(".");
+    time(&now);
+  }
+  Serial.println("\nTime is set via NTP!");
 }
 
 // 5-second timelapse interval
@@ -160,13 +179,18 @@ void captureAndSaveTimelapse() {
         }
     }
 
+   
     // 3) Build a unique filename
-    // Option A: Use esp_timer_get_time() (microseconds since boot)
-    //           This is not "true" epoch time unless you sync via NTP.
-    // Option B: Use real NTP-based timestamps, if your device has internet & you have set time.
+    // Use real NTP-based timestamps, if your device has internet & you have set time.
+    
+    // Now get the real time
+    time_t now;
+    time(&now);
+    struct tm timeinfo;
+    localtime_r(&now, &timeinfo);
+
     char filename[64];
-    uint64_t t = esp_timer_get_time() / 1000000ULL; // seconds since boot or since last deep sleep
-    snprintf(filename, sizeof(filename), "/%llu.jpg", t);
+    strftime(filename, sizeof(filename), "/%Y-%m-%d_%H-%M-%S.jpg", &timeinfo);
 
     // 4) Write file
     File f = SD_MMC.open(filename, FILE_WRITE);
