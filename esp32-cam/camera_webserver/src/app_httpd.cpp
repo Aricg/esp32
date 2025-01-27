@@ -1,4 +1,6 @@
 // Copyright BSD
+#include "FS.h"
+#include "SD_MMC.h"
 #include "esp_camera.h"
 #include "esp_http_server.h"
 #include "esp_timer.h"
@@ -36,6 +38,24 @@ typedef struct {
   int sum;
   int *values; // array to be filled with values
 } ra_filter_t;
+
+bool writeFile(const char *path, const unsigned char *data, unsigned long len) {
+  Serial.printf("Writing file: %s\n", path);
+  File file = SD_MMC.open(path, FILE_WRITE);
+  if (!file) {
+    Serial.println("Failed to open file for writing");
+    return false;
+  }
+  if (file.write(data, len)) {
+    Serial.println("File written");
+  } else {
+    Serial.println("Write failed");
+    file.close();
+    return false;
+  }
+  file.close();
+  return true;
+}
 
 static ra_filter_t ra_filter;
 
@@ -122,52 +142,74 @@ static size_t jpg_encode_stream(void *arg, size_t index, const void *data,
   return len;
 }
 
+// The capture_handler that serves /capture
 static esp_err_t capture_handler(httpd_req_t *req) {
-  camera_fb_t *fb = NULL;
-  esp_err_t res = ESP_OK;
-#if ARDUHAL_LOG_LEVEL >= ARDUHAL_LOG_LEVEL_INFO
-  int64_t fr_start = esp_timer_get_time();
-#endif
-
-  fb = esp_camera_fb_get();
-
+  camera_fb_t *fb = esp_camera_fb_get(); // Grab a frame
   if (!fb) {
     log_e("Camera capture failed");
     httpd_resp_send_500(req);
     return ESP_FAIL;
   }
 
+  // Inform the browser we are sending a JPEG image
   httpd_resp_set_type(req, "image/jpeg");
   httpd_resp_set_hdr(req, "Content-Disposition",
                      "inline; filename=capture.jpg");
-  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
 
+  // This is optional, but sets a custom timestamp header
   char ts[32];
   snprintf(ts, 32, "%lld.%06ld", fb->timestamp.tv_sec, fb->timestamp.tv_usec);
   httpd_resp_set_hdr(req, "X-Timestamp", (const char *)ts);
 
-#if ARDUHAL_LOG_LEVEL >= ARDUHAL_LOG_LEVEL_INFO
-  size_t fb_len = 0;
-#endif
+  esp_err_t res = ESP_OK;
+  size_t out_len = 0;
+  uint8_t *out_buf = NULL;
+
   if (fb->format == PIXFORMAT_JPEG) {
-#if ARDUHAL_LOG_LEVEL >= ARDUHAL_LOG_LEVEL_INFO
-    fb_len = fb->len;
-#endif
-    res = httpd_resp_send(req, (const char *)fb->buf, fb->len);
+    // The camera buffer is already JPEG
+    out_buf = fb->buf;
+    out_len = fb->len;
+
+    // 1) Send to the browser
+    res = httpd_resp_send(req, (const char *)out_buf, out_len);
+
+    // 2) Write to SD card. (Use a unique filename if you like!)
+    Serial.printf("httpd_resp_send returned: %d\n", (int)res);
+    if (res == ESP_OK) {
+      bool success = writeFile("/capture.jpg", out_buf, out_len);
+      if (!success) {
+        Serial.println("Failed to save photo to SD");
+      }
+    }
+
+    // Return the framebuffer to the driver
+    esp_camera_fb_return(fb);
   } else {
-    jpg_chunking_t jchunk = {req, 0};
-    res = frame2jpg_cb(fb, 80, jpg_encode_stream, &jchunk) ? ESP_OK : ESP_FAIL;
-    httpd_resp_send_chunk(req, NULL, 0);
-#if ARDUHAL_LOG_LEVEL >= ARDUHAL_LOG_LEVEL_INFO
-    fb_len = jchunk.len;
-#endif
+    // The buffer is raw (e.g. RGB565). Convert to JPEG in software.
+    bool converted = frame2jpg(fb, 80, &out_buf, &out_len);
+    // Return the fb first, since we've made our own JPEG copy
+    esp_camera_fb_return(fb);
+
+    if (!converted) {
+      httpd_resp_send_500(req);
+      return ESP_FAIL;
+    }
+
+    // 1) Send the JPEG to the browser
+    res = httpd_resp_send(req, (const char *)out_buf, out_len);
+
+    // 2) Write the JPEG to SD (if sending succeeded)
+    if (res == ESP_OK) {
+      bool success = writeFile("/capture.jpg", out_buf, out_len);
+      if (!success) {
+        Serial.println("Failed to save photo to SD");
+      }
+    }
+
+    // Must free the buffer we allocated with frame2jpg()
+    free(out_buf);
   }
-  esp_camera_fb_return(fb);
-#if ARDUHAL_LOG_LEVEL >= ARDUHAL_LOG_LEVEL_INFO
-  int64_t fr_end = esp_timer_get_time();
-#endif
-  log_i("JPG: %uB %ums", (uint32_t)(fb_len),
-        (uint32_t)((fr_end - fr_start) / 1000));
+
   return res;
 }
 

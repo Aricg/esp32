@@ -1,6 +1,9 @@
 #include "esp_camera.h"
 #include <WiFi.h>
 #include "esp_system.h"
+#include "FS.h"
+#include "SD_MMC.h"
+
 
 // ===================
 // Select camera model
@@ -21,6 +24,13 @@ void setup() {
   Serial.begin(115200);
   Serial.setDebugOutput(true);
   Serial.println();
+
+  if(!SD_MMC.begin("/sdcard", true)) {
+    Serial.println("SD Card Mount Failed");
+  } else {
+    Serial.println("SD Card Initialized");
+  }
+
 
   // Debugging: Check reset reason
   esp_reset_reason_t reset_reason = esp_reset_reason();
@@ -120,7 +130,72 @@ void setup() {
   Serial.println("' to connect");
 }
 
-void loop() {
-  delay(10000); // Do nothing. Everything is handled by the web server.
+// 5-second timelapse interval
+static const unsigned long TIMELAPSE_INTERVAL_MS = 5000;
+static unsigned long lastTimelapse = 0;
+
+void captureAndSaveTimelapse() {
+    // 1) Grab a frame
+    camera_fb_t *fb = esp_camera_fb_get();
+    if (!fb) {
+        Serial.println("Timelapse capture failed");
+        return;
+    }
+
+    // 2) Convert to JPEG if needed
+    size_t out_len = 0;
+    uint8_t *out_buf = NULL;
+
+    if (fb->format == PIXFORMAT_JPEG) {
+        // Already JPEG
+        out_buf = fb->buf;
+        out_len = fb->len;
+    } else {
+        // Convert from e.g. RGB565 to JPEG
+        bool converted = frame2jpg(fb, 80, &out_buf, &out_len);
+        if (!converted) {
+            esp_camera_fb_return(fb);
+            Serial.println("JPEG conversion failed");
+            return;
+        }
+    }
+
+    // 3) Build a unique filename
+    // Option A: Use esp_timer_get_time() (microseconds since boot)
+    //           This is not "true" epoch time unless you sync via NTP.
+    // Option B: Use real NTP-based timestamps, if your device has internet & you have set time.
+    char filename[64];
+    uint64_t t = esp_timer_get_time() / 1000000ULL; // seconds since boot or since last deep sleep
+    snprintf(filename, sizeof(filename), "/%llu.jpg", t);
+
+    // 4) Write file
+    File f = SD_MMC.open(filename, FILE_WRITE);
+    if (!f) {
+        Serial.printf("Failed to open file for writing: %s\n", filename);
+    } else {
+        f.write(out_buf, out_len);
+        f.close();
+        Serial.printf("Timelapse saved: %s (%u bytes)\n", filename, (unsigned)out_len);
+    }
+
+    // 5) Cleanup
+    if (fb->format == PIXFORMAT_JPEG) {
+        // Return frame buffer to driver
+        esp_camera_fb_return(fb);
+    } else {
+        // We allocated our own out_buf
+        free(out_buf);
+        // Also return the original frame buffer
+        esp_camera_fb_return(fb);
+    }
 }
 
+
+
+void loop() {
+  // Your timelapse function every 5 seconds
+  if (millis() - lastTimelapse >= TIMELAPSE_INTERVAL_MS) {
+    lastTimelapse = millis();
+    captureAndSaveTimelapse();
+  }
+}
