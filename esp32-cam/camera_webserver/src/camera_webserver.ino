@@ -150,7 +150,7 @@ void setupTimeViaNTP() {
 }
 
 // 5-second timelapse interval
-static const unsigned long TIMELAPSE_INTERVAL_MS = 5000;
+static const unsigned long TIMELAPSE_INTERVAL_MS = 40000;
 static unsigned long lastTimelapse = 0;
 
 void captureAndSaveTimelapse() {
