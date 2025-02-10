@@ -12,10 +12,15 @@
 #include "camera_pins.h"
 
 // ===========================
-// Enter your WiFi credentials
+// WiFi credentials from env
 // ===========================
-const char *ssid = "MikroTik-ED936E";
-const char *password = "boonofoxboonofox";
+#ifndef WIFI_SSID
+#error "WIFI_SSID must be defined via build flags"
+#endif
+#ifndef WIFI_PASSWORD 
+#error "WIFI_PASSWORD must be defined via build flags"
+#endif
+
 const char* ntpServer = "pool.ntp.org";
 const long gmtOffset_sec = 0;       // adjust if you need local time
 const int daylightOffset_sec = 0;   // adjust if you have DST
@@ -115,7 +120,7 @@ void setup() {
     s->set_saturation(s, -2);
   }
 
-  WiFi.begin(ssid, password);
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   WiFi.setSleep(false);
 
   Serial.print("WiFi connecting");
