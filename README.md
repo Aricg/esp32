@@ -1,8 +1,9 @@
-# esp32
+# esp32 Projects:
 
-![Timelapse Demo](./timelapse_example.gif)
+#Timelapse
+![Timelapse Demo](./timelapse.gif)
 
-esp32 projects
+# Commands
 
 ```python
 python -m esptool --port /dev/cu.usbserial-2120 erase_flash
