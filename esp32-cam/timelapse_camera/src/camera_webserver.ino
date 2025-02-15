@@ -5,6 +5,10 @@
 #include "SD_MMC.h"
 #include <time.h>
 
+#ifndef VERTICAL_FLIP
+#define VERTICAL_FLIP 0  // Default to false if not defined
+#endif
+
 // ===================
 // Select camera model
 // ===================
@@ -120,8 +124,11 @@ void setup() {
   Serial.print("Camera sensor PID: ");
   Serial.println(s->id.PID, HEX);
 
+  // Set vertical flip based on build flag
+  s->set_vflip(s, VERTICAL_FLIP);
+  Serial.printf("Vertical flip: %s\n", VERTICAL_FLIP ? "Enabled" : "Disabled");
+
   if (s->id.PID == OV3660_PID) {
-    s->set_vflip(s, 1);
     s->set_brightness(s, 1);
     s->set_saturation(s, -2);
   }
