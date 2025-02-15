@@ -33,6 +33,12 @@ void setup() {
   Serial.setDebugOutput(true);
   Serial.println();
 
+  // Print WiFi credentials
+  Serial.print("Using WiFi SSID: ");
+  Serial.println(WIFI_SSID);
+  Serial.print("Using WiFi Password: ");
+  Serial.println(WIFI_PASSWORD);
+
   if(!SD_MMC.begin("/sdcard", true)) {
     Serial.println("SD Card Mount Failed");
   } else {
