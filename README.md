@@ -3,6 +3,12 @@
 #Timelapse
 ![Timelapse Demo](./timelapse.gif)
 
+# Libraries
+
+```
+arduino-cli lib list
+```
+
 # Commands
 
 ```python
