@@ -44,14 +44,14 @@ void setup() {
 
   // Initialize BME680
   Serial.println("Initializing BME680...");
-  if (!bme.begin(0x76)) {
+  if (!bme.begin(0x77)) {
     Serial.println("Could not find a valid BME680 sensor, check wiring!");
     Serial.println("Possible causes:");
-    Serial.println("1. Incorrect I2C address (should be 0x76)");
+    Serial.println("1. Incorrect I2C address (should be 0x77)");
     Serial.println("2. SDA/SCL pins not connected properly");
     Serial.println("3. 3.3V power not connected");
     Serial.println("4. GND not connected");
-    Serial.println("5. SDO pin not connected to GND");
+    Serial.println("5. SDO pin not connected to VCC");
     while (1);
   }
   Serial.println("BME680 initialized successfully");
