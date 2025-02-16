@@ -6,12 +6,43 @@ Adafruit_BME680 bme;
 
 void setup() {
   Serial.begin(115200);
-  while (!Serial);
+  Serial.println("Starting setup...");
+  delay(1000); // Give time for serial to initialize
+  
+  // Check if Serial is working
+  if (!Serial) {
+    Serial.println("Serial communication failed!");
+    while (1);
+  }
   Serial.println("Serial initialized");
 
   // Initialize I2C communication
+  Serial.println("Initializing I2C...");
   Wire.begin(21, 22);  // SDA, SCL
+  if (Wire.status() != I2C_OK) {
+    Serial.println("I2C initialization failed!");
+    while (1);
+  }
   Serial.println("I2C initialized");
+
+  // Scan I2C bus
+  Serial.println("Scanning I2C bus...");
+  byte error, address;
+  int nDevices = 0;
+  for (address = 1; address < 127; address++) {
+    Wire.beginTransmission(address);
+    error = Wire.endTransmission();
+    if (error == 0) {
+      Serial.print("I2C device found at address 0x");
+      if (address < 16) Serial.print("0");
+      Serial.print(address, HEX);
+      Serial.println(" !");
+      nDevices++;
+    }
+  }
+  if (nDevices == 0) {
+    Serial.println("No I2C devices found!");
+  }
 
   // Initialize BME680
   Serial.println("Initializing BME680...");
@@ -22,6 +53,7 @@ void setup() {
     Serial.println("2. SDA/SCL pins not connected properly");
     Serial.println("3. 3.3V power not connected");
     Serial.println("4. GND not connected");
+    Serial.println("5. SDO pin not connected to GND");
     while (1);
   }
   Serial.println("BME680 initialized successfully");
