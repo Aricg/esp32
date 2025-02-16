@@ -61,7 +61,6 @@ void setup() {
   bme.setHumidityOversampling(BME680_OS_2X);
   bme.setPressureOversampling(BME680_OS_4X);
   bme.setIIRFilterSize(BME680_FILTER_SIZE_3);
-  bme.setGasHeater(320, 150); // 320*C for 150 ms
 }
 
 void loop() {
@@ -70,8 +69,7 @@ void loop() {
   if (!bme.performReading()) {
     Serial.println("Failed to perform reading, possible causes:");
     Serial.println("1. Sensor not ready yet");
-    Serial.println("2. Gas heater not functioning");
-    Serial.println("3. I2C communication error");
+    Serial.println("2. I2C communication error");
     Serial.println("Retrying in 1 second...");
     delay(1000);
     return;
@@ -89,14 +87,6 @@ void loop() {
   Serial.print(bme.humidity);
   Serial.println(" %");
 
-  // Check if gas reading is valid
-  if (bme.gas_resistance > 0) {
-    Serial.print("Gas = ");
-    Serial.print(bme.gas_resistance / 1000.0);
-    Serial.println(" KOhms");
-  } else {
-    Serial.println("Gas reading invalid (heater may be off)");
-  }
 
   // Calculate and display reading time
   unsigned long readTime = millis() - startTime;
