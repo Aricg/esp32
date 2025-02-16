@@ -52,13 +52,13 @@ void loop() {
   // Read sensor values
   MQ135.update();
   float ppm = MQ135.readSensor();
-  float resistance = MQ135.getResistance();
-  float ratio = MQ135.getRatio();
+  float resistance = MQ135.getSensorResistance();
+  float ratio = MQ135.getR0();
 
   // Print detailed readings
   Serial.println("-----------------------------");
   Serial.print("Raw Resistance: "); Serial.println(resistance);
-  Serial.print("Ratio (RS/R0): "); Serial.println(ratio);
+  Serial.print("R0: "); Serial.println(ratio);
   Serial.print("Gas Concentration: "); Serial.print(ppm); Serial.println(" ppm");
 
   // Wait 5 seconds before next reading
