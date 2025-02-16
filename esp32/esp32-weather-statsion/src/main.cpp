@@ -6,8 +6,10 @@ Adafruit_BME680 bme;
 
 void setup() {
   Serial.begin(115200);
+  Serial.println("Serial test - if you see this, serial is working!");
+  delay(2000); // Give extra time for serial to initialize
   Serial.println("Starting setup...");
-  delay(1000); // Give time for serial to initialize
+  delay(1000);
   
   // Check if Serial is working
   if (!Serial) {
