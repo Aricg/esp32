@@ -43,8 +43,8 @@ void setup() {
   Serial.print("Calibrated R0 value: ");
   Serial.println(MQ135.getR0());
   Serial.println("MQ135 sensor initialized!");
-  Serial.println("Waiting 2 minutes for sensor warm-up...");
-  delay(120000); // Wait 2 minutes for sensor to warm up
+  Serial.println("Waiting 5 seconds for sensor warm-up...");
+  delay(5000); // Reduced from 120000 to 5000
   Serial.println("Sensor warm-up complete. Starting readings...");
 }
 
@@ -53,9 +53,11 @@ void loop() {
   MQ135.update();
   float ppm = MQ135.readSensor();
   float ratio = MQ135.getR0();
+  int rawAnalog = analogRead(MQ135_PIN_AO); // Add raw analog reading
 
   // Print detailed readings
   Serial.println("-----------------------------");
+  Serial.print("Raw Analog Value: "); Serial.println(rawAnalog);
   Serial.print("R0: "); Serial.println(ratio);
   Serial.print("Gas Concentration: "); Serial.print(ppm); Serial.println(" ppm");
 
