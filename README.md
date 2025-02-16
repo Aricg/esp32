@@ -22,4 +22,5 @@ platformio lib install
 platformio run
 platformio run --target upload
 platformio device monitor -p /dev/cu.usbserial-2120 -b 115200
+platformio device monitor -p /dev/cu.usbserial-10 -b 115200
 ```
