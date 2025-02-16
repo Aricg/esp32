@@ -19,10 +19,6 @@ void setup() {
   // Initialize I2C communication
   Serial.println("Initializing I2C...");
   Wire.begin(21, 22);  // SDA, SCL
-  if (Wire.status() != I2C_OK) {
-    Serial.println("I2C initialization failed!");
-    while (1);
-  }
   Serial.println("I2C initialized");
 
   // Scan I2C bus
