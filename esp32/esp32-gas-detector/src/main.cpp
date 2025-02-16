@@ -52,7 +52,7 @@ void loop() {
   // Read sensor values
   MQ135.update();
   float ppm = MQ135.readSensor();
-  float resistance = MQ135.getSensorResistance();
+  float resistance = MQ135.getR();
   float ratio = MQ135.getR0();
 
   // Print detailed readings
