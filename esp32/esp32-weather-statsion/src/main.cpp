@@ -64,16 +64,34 @@ void setup() {
 }
 
 void loop() {
+  static int errorCount = 0;
+  static int successCount = 0;
   unsigned long startTime = millis();
   
-  if (!bme.performReading()) {
-    Serial.println("Failed to perform reading, possible causes:");
+  // Try reading up to 3 times
+  bool success = false;
+  for (int attempt = 0; attempt < 3; attempt++) {
+    if (bme.performReading()) {
+      success = true;
+      break;
+    }
+    delay(100); // Short delay between attempts
+  }
+
+  if (!success) {
+    errorCount++;
+    Serial.print("Failed to perform reading (attempts: 3), total errors: ");
+    Serial.println(errorCount);
+    Serial.println("Possible causes:");
     Serial.println("1. Sensor not ready yet");
-    Serial.println("2. I2C communication error");
-    Serial.println("Retrying in 1 second...");
-    delay(1000);
+    Serial.println("2. I2C communication issue");
+    Serial.println("3. Power supply instability");
+    Serial.println("Retrying in 2 seconds...");
+    delay(2000);
     return;
   }
+  
+  successCount++;
 
   Serial.print("Temperature = ");
   Serial.print(bme.temperature);
@@ -94,6 +112,10 @@ void loop() {
   Serial.print(readTime);
   Serial.println(" ms");
 
+  Serial.print("Successful readings: ");
+  Serial.print(successCount);
+  Serial.print(" | Errors: ");
+  Serial.println(errorCount);
   Serial.println();
-  delay(2000); // Wait 2 seconds between readings
+  delay(3000); // Wait 3 seconds between readings
 }
