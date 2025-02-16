@@ -7,15 +7,24 @@ Adafruit_BME680 bme;
 void setup() {
   Serial.begin(115200);
   while (!Serial);
+  Serial.println("Serial initialized");
 
   // Initialize I2C communication
   Wire.begin(21, 22);  // SDA, SCL
+  Serial.println("I2C initialized");
 
   // Initialize BME680
+  Serial.println("Initializing BME680...");
   if (!bme.begin(0x76)) {
     Serial.println("Could not find a valid BME680 sensor, check wiring!");
+    Serial.println("Possible causes:");
+    Serial.println("1. Incorrect I2C address (should be 0x76)");
+    Serial.println("2. SDA/SCL pins not connected properly");
+    Serial.println("3. 3.3V power not connected");
+    Serial.println("4. GND not connected");
     while (1);
   }
+  Serial.println("BME680 initialized successfully");
 
   // Set up oversampling and filter initialization
   bme.setTemperatureOversampling(BME680_OS_8X);
