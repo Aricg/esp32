@@ -3,6 +3,11 @@
 // Define MQ135 sensor pin
 #define MQ135_PIN_AO 34
 
+// Conversion constants
+#define BASE_VALUE 500
+#define BASE_PPM 0.10
+#define CONVERSION_FACTOR 0.0002 // Adjust this based on your sensor's characteristics
+
 void setup() {
   // Initialize serial communication
   Serial.begin(115200);
@@ -24,9 +29,13 @@ void loop() {
   // Read raw analog value
   int rawAnalog = analogRead(MQ135_PIN_AO);
 
-  // Print reading
+  // Estimate ppm
+  float estimatedPPM = BASE_PPM + (rawAnalog - BASE_VALUE) * CONVERSION_FACTOR;
+
+  // Print readings
   Serial.println("-----------------------------");
   Serial.print("Raw Analog Value: "); Serial.println(rawAnalog);
+  Serial.print("Estimated PPM: "); Serial.println(estimatedPPM, 2); // Print with 2 decimal places
 
   // Wait 5 seconds before next reading
   delay(5000);
