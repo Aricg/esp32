@@ -5,12 +5,20 @@
 #define MQ135_PIN_AO 34
 
 // WiFi and server configuration
-const char* ssid = "YOUR_WIFI_SSID";
-const char* password = "YOUR_WIFI_PASSWORD";
-const char* serverUrl = "http://your-aggregator-server.com/post";
+#ifndef WIFI_SSID
+#define WIFI_SSID "YOUR_WIFI_SSID"  // Fallback if not defined
+#endif
+
+#ifndef WIFI_PASSWORD
+#define WIFI_PASSWORD "YOUR_WIFI_PASSWORD"  // Fallback if not defined
+#endif
+
+#ifndef SERVER_URL
+#define SERVER_URL "http://your-aggregator-server.com/post"  // Fallback if not defined
+#endif
 
 // Create network utilities instance
-NetworkUtils network(ssid, password, serverUrl);
+NetworkUtils network(WIFI_SSID, WIFI_PASSWORD, SERVER_URL);
 
 void setup() {
   // Initialize serial communication
