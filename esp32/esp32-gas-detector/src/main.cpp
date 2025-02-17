@@ -20,6 +20,8 @@
 // Create network utilities instance
 NetworkUtils network(WIFI_SSID, WIFI_PASSWORD, SERVER_URL);
 
+bool firstValue = true;  // Track first value for comma-separated output
+
 void setup() {
   // Initialize serial communication
   Serial.begin(115200);
@@ -58,8 +60,14 @@ void loop() {
       Serial.println("Failed to post sensor data");
     }
   } else {
-    Serial.print("Raw Value: ");
-    Serial.println(dataString);
+    // Print value in comma-separated format
+    if (firstValue) {
+      Serial.print(dataString);
+      firstValue = false;
+    } else {
+      Serial.print(",");
+      Serial.print(dataString);
+    }
   }
 
   // Wait 5 seconds before next reading
