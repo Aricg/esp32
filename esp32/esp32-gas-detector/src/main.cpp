@@ -19,6 +19,8 @@ void setup() {
   // Initialize MQ135 sensor
   MQ135.init();
   MQ135.setRegressionMethod(1); // Use exponential regression
+  MQ135.setA(605.18);    // Generic coefficient A
+  MQ135.setB(-3.937);    // Generic coefficient B
 
   Serial.println("MQ135 sensor initialized!");
   Serial.println("Waiting 5 seconds for sensor warm-up...");
