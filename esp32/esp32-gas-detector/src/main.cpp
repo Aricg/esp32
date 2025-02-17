@@ -17,7 +17,6 @@ void setup() {
   Serial.println("Serial connection established!");
 
   // Initialize MQ135 sensor
-  MQ135.setPin(MQ135_PIN_AO);
   MQ135.setA(605.18);    // Generic coefficient A
   MQ135.setB(-3.937);    // Generic coefficient B
   MQ135.setRL(1);        // Set load resistance to 1KΩ
@@ -39,14 +38,12 @@ void setup() {
 void loop() {
   // Read sensor values
   MQ135.update();
-  float ratio = MQ135.readRatio();
   float concentration = MQ135.readSensor();
   int rawAnalog = analogRead(MQ135_PIN_AO);
 
   // Print readings
   Serial.println("-----------------------------");
   Serial.print("Raw Analog Value: "); Serial.println(rawAnalog);
-  Serial.print("Sensor Ratio: "); Serial.println(ratio);
   Serial.print("Gas Concentration: "); Serial.print(concentration); Serial.println(" ppm");
 
   // Wait 5 seconds before next reading
