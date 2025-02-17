@@ -9,6 +9,9 @@ const int HISTORY_SIZE = 50; // Number of previous values to store
 int valueHistory[HISTORY_SIZE]; // Array to store historical values
 int historyIndex = 0;         // Current position in history array
 
+// Function prototype
+void printTrendGraph();
+
 void setup() {
   // Initialize serial communication
   Serial.begin(115200);
