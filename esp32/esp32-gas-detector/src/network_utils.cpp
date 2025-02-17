@@ -29,6 +29,10 @@ bool NetworkUtils::connectToWiFi() {
 }
 
 bool NetworkUtils::postSensorData(const char* sensorId, const char* data) {
+    if (strlen(_serverUrl) == 0) {
+        return false;  // Skip if server URL is not set
+    }
+
     if (!_wifiConnected && !connectToWiFi()) {
         return false;
     }

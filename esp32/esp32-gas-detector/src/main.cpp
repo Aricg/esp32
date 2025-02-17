@@ -14,7 +14,7 @@
 #endif
 
 #ifndef SERVER_URL
-#define SERVER_URL "http://your-aggregator-server.com/post"  // Fallback if not defined
+#define SERVER_URL ""  // Empty string if not defined
 #endif
 
 // Create network utilities instance
@@ -31,9 +31,11 @@ void setup() {
   // Initialize analog pin
   pinMode(MQ135_PIN_AO, INPUT);
   
-  // Connect to WiFi
-  if (!network.connectToWiFi()) {
-    Serial.println("Failed to connect to WiFi. Continuing in offline mode.");
+  // Connect to WiFi only if SERVER_URL is set
+  if (strlen(SERVER_URL) > 0) {
+    if (!network.connectToWiFi()) {
+      Serial.println("Failed to connect to WiFi. Continuing in offline mode.");
+    }
   }
   
   Serial.println("MQ135 sensor initialized!");
@@ -50,9 +52,14 @@ void loop() {
   char dataString[10];
   snprintf(dataString, sizeof(dataString), "%d", rawAnalog);
 
-  // Post data to server
-  if (!network.postSensorData("mq135_sensor_1", dataString)) {
-    Serial.println("Failed to post sensor data");
+  // Post data to server only if SERVER_URL is set
+  if (strlen(SERVER_URL) > 0) {
+    if (!network.postSensorData("mq135_sensor_1", dataString)) {
+      Serial.println("Failed to post sensor data");
+    }
+  } else {
+    Serial.print("Raw Value: ");
+    Serial.println(dataString);
   }
 
   // Wait 5 seconds before next reading
