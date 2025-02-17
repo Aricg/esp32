@@ -19,8 +19,6 @@ void setup() {
   // Initialize MQ135 sensor
   MQ135.init();
   MQ135.setRegressionMethod(1); // Use exponential regression
-  MQ135.setA(110.47); 
-  MQ135.setB(-2.862); // These values are for CO2
 
   Serial.println("MQ135 sensor initialized!");
   Serial.println("Waiting 5 seconds for sensor warm-up...");
@@ -31,13 +29,13 @@ void setup() {
 void loop() {
   // Read sensor values
   MQ135.update();
-  float ppm = MQ135.readSensor();
+  float concentration = MQ135.readSensor();
   int rawAnalog = analogRead(MQ135_PIN_AO);
 
   // Print readings
   Serial.println("-----------------------------");
   Serial.print("Raw Analog Value: "); Serial.println(rawAnalog);
-  Serial.print("Gas Concentration: "); Serial.print(ppm); Serial.println(" ppm");
+  Serial.print("Gas Concentration: "); Serial.print(concentration); Serial.println(" ppm");
 
   // Wait 5 seconds before next reading
   delay(5000);
