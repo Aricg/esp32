@@ -5,11 +5,6 @@
 #define MQ135_PIN_AO 34
 #define MQ135_PIN_DO 13
 
-// Calibration constants
-#define CALIBRATION_SAMPLE_TIMES 50
-#define CALIBRATION_SAMPLE_INTERVAL 500
-#define R0_CLEAN_AIR_FACTOR 3.6 // For MQ135 in clean air
-
 // Create MQ135 sensor object
 MQUnifiedsensor MQ135("ESP32", 3.3, 12, MQ135_PIN_AO);
 
@@ -27,24 +22,9 @@ void setup() {
   MQ135.setA(110.47); 
   MQ135.setB(-2.862); // These values are for CO2
 
-  // Calibrate R0 value
-  Serial.println("Calibrating MQ135 sensor...");
-  float calcR0 = 0;
-  for (int i = 1; i <= CALIBRATION_SAMPLE_TIMES; i++) {
-    MQ135.update();
-    calcR0 += MQ135.calibrate(R0_CLEAN_AIR_FACTOR);
-    Serial.print(".");
-    delay(CALIBRATION_SAMPLE_INTERVAL);
-  }
-  MQ135.setR0(calcR0 / CALIBRATION_SAMPLE_TIMES);
-  Serial.println("\nCalibration complete!");
-
-  // Print calibration results
-  Serial.print("Calibrated R0 value: ");
-  Serial.println(MQ135.getR0());
   Serial.println("MQ135 sensor initialized!");
   Serial.println("Waiting 5 seconds for sensor warm-up...");
-  delay(5000); // Reduced from 120000 to 5000
+  delay(5000);
   Serial.println("Sensor warm-up complete. Starting readings...");
 }
 
@@ -52,13 +32,11 @@ void loop() {
   // Read sensor values
   MQ135.update();
   float ppm = MQ135.readSensor();
-  float ratio = MQ135.getR0();
-  int rawAnalog = analogRead(MQ135_PIN_AO); // Add raw analog reading
+  int rawAnalog = analogRead(MQ135_PIN_AO);
 
-  // Print detailed readings
+  // Print readings
   Serial.println("-----------------------------");
   Serial.print("Raw Analog Value: "); Serial.println(rawAnalog);
-  Serial.print("R0: "); Serial.println(ratio);
   Serial.print("Gas Concentration: "); Serial.print(ppm); Serial.println(" ppm");
 
   // Wait 5 seconds before next reading
