@@ -29,6 +29,10 @@ void setup() {
   }
   Serial.println("Serial connection established!");
 
+  // Debug: Print SERVER_URL
+  Serial.print("SERVER_URL: ");
+  Serial.println(SERVER_URL);
+
   // Initialize analog pin
   pinMode(MQ135_PIN_AO, INPUT);
   
