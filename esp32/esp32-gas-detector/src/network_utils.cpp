@@ -28,7 +28,7 @@ bool NetworkUtils::connectToWiFi() {
     return false;
 }
 
-bool NetworkUtils::postSensorData(const char* sensorId, const char* data) {
+bool NetworkUtils::postSensorData(const char* sensorName, float sensorValue) {
     if (strlen(_serverUrl) == 0) {
         return false;  // Skip if server URL is not set
     }
@@ -39,9 +39,17 @@ bool NetworkUtils::postSensorData(const char* sensorId, const char* data) {
 
     HTTPClient http;
     http.begin(_serverUrl);
-    http.addHeader("Content-Type", "application/x-www-form-urlencoded");
+    http.addHeader("Content-Type", "application/json");
 
-    String postData = "sensor_id=" + String(sensorId) + "&data=" + String(data);
+    // Create JSON payload
+    StaticJsonDocument<200> jsonDoc;
+    jsonDoc["service_name"] = "esp32_gas_sensor";
+    jsonDoc["sensor_name"] = sensorName;
+    jsonDoc["sensor_value"] = sensorValue;
+
+    String postData;
+    serializeJson(jsonDoc, postData);
+
     int httpResponseCode = http.POST(postData);
 
     if (httpResponseCode > 0) {

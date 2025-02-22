@@ -20,7 +20,6 @@
 // Create network utilities instance
 NetworkUtils network(WIFI_SSID, WIFI_PASSWORD, SERVER_URL);
 
-bool firstValue = true;  // Track first value for comma-separated output
 
 void setup() {
   // Initialize serial communication
@@ -50,24 +49,14 @@ void loop() {
   // Read raw analog value
   int rawAnalog = analogRead(MQ135_PIN_AO);
 
-  // Convert value to string
-  char dataString[10];
-  snprintf(dataString, sizeof(dataString), "%d", rawAnalog);
-
   // Post data to server only if SERVER_URL is set
   if (strlen(SERVER_URL) > 0) {
-    if (!network.postSensorData("mq135_sensor_1", dataString)) {
+    if (!network.postSensorData("gas_sensor", rawAnalog)) {
       Serial.println("Failed to post sensor data");
     }
   } else {
-    // Print value in comma-separated format
-    if (firstValue) {
-      Serial.print(dataString);
-      firstValue = false;
-    } else {
-      Serial.print(",");
-      Serial.print(dataString);
-    }
+    Serial.print("Raw Value: ");
+    Serial.println(rawAnalog);
   }
 
   // Wait 5 seconds before next reading
