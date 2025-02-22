@@ -13,12 +13,19 @@
 #define WIFI_PASSWORD "YOUR_WIFI_PASSWORD"  // Fallback if not defined
 #endif
 
-#ifndef SERVER_URL
-#define SERVER_URL ""  // Empty string if not defined
+#ifndef SERVER_IP
+#define SERVER_IP "192.168.1.100"  // Fallback if not defined
 #endif
 
+#ifndef SERVER_PORT
+#define SERVER_PORT "5050"  // Fallback if not defined
+#endif
+
+// Construct server URL
+const String SERVER_URL = "http://" + String(SERVER_IP) + ":" + String(SERVER_PORT) + "/data";
+
 // Create network utilities instance
-NetworkUtils network(WIFI_SSID, WIFI_PASSWORD, SERVER_URL);
+NetworkUtils network(WIFI_SSID, WIFI_PASSWORD, SERVER_URL.c_str());
 
 
 void setup() {
@@ -52,7 +59,7 @@ void loop() {
   int rawAnalog = analogRead(MQ135_PIN_AO);
 
   // Post data to server only if SERVER_URL is set
-  if (strlen(SERVER_URL) > 0) {
+  if (SERVER_URL.length() > 0) {
     if (!network.postSensorData("gas_sensor", rawAnalog)) {
       Serial.println("Failed to post sensor data");
     }
