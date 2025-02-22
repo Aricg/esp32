@@ -42,13 +42,12 @@ bool NetworkUtils::postSensorData(const char* sensorName, float sensorValue) {
     http.addHeader("Content-Type", "application/json");
 
     // Create JSON payload
-    StaticJsonDocument<200> jsonDoc;
+    JSONVar jsonDoc;
     jsonDoc["service_name"] = "esp32_gas_sensor";
     jsonDoc["sensor_name"] = sensorName;
     jsonDoc["sensor_value"] = sensorValue;
 
-    String postData;
-    serializeJson(jsonDoc, postData);
+    String postData = JSON.stringify(jsonDoc);
 
     int httpResponseCode = http.POST(postData);
 
