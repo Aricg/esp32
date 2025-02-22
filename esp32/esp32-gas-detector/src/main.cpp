@@ -32,11 +32,9 @@ void setup() {
   // Initialize analog pin
   pinMode(MQ135_PIN_AO, INPUT);
   
-  // Connect to WiFi only if SERVER_URL is set
-  if (strlen(SERVER_URL) > 0) {
-    if (!network.connectToWiFi()) {
-      Serial.println("Failed to connect to WiFi. Continuing in offline mode.");
-    }
+  // Always attempt to connect to WiFi
+  if (!network.connectToWiFi()) {
+    Serial.println("Failed to connect to WiFi. Continuing in offline mode.");
   }
   
   Serial.println("MQ135 sensor initialized!");

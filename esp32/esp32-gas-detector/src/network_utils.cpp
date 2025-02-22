@@ -33,6 +33,7 @@ bool NetworkUtils::postSensorData(const char* sensorName, float sensorValue) {
         return false;  // Skip if server URL is not set
     }
 
+    // Ensure WiFi is connected
     if (!_wifiConnected && !connectToWiFi()) {
         return false;
     }
