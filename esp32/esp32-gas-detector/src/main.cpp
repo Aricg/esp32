@@ -58,8 +58,8 @@ void loop() {
   // Read raw analog value
   int rawAnalog = analogRead(MQ135_PIN_AO);
 
-  // Convert to floating-point value
-  float sensorValue = rawAnalog / 10.0;  // Adjust this conversion as needed
+  // Convert to integer value (rounding)
+  int sensorValue = round(rawAnalog / 10.0);  // Round the result
 
   // Post data to server only if SERVER_URL is set
   if (SERVER_URL.length() > 0) {

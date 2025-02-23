@@ -9,7 +9,7 @@ class NetworkUtils {
 public:
     NetworkUtils(const char* ssid, const char* password, const char* serverUrl);
     bool connectToWiFi();
-    bool postSensorData(const char* sensorName, float sensorValue);
+    bool postSensorData(const char* sensorName, int sensorValue);
     
 private:
     const char* _ssid;
