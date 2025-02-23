@@ -49,6 +49,10 @@ bool NetworkUtils::postSensorData(const char* sensorName, float sensorValue) {
 
     String postData = JSON.stringify(jsonDoc);
 
+    // Debug: Print the payload
+    Serial.print("Sending payload: ");
+    Serial.println(postData);
+
     int httpResponseCode = http.POST(postData);
 
     if (httpResponseCode > 0) {
