@@ -44,7 +44,6 @@ bool NetworkUtils::postSensorData(const char* sensorName, float sensorValue) {
 
     // Create JSON payload
     JSONVar jsonDoc;
-    jsonDoc["service_name"] = "esp32_gas_sensor";
     jsonDoc["sensor_name"] = sensorName;
     jsonDoc["sensor_value"] = sensorValue;
 
