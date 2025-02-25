@@ -1,32 +1,32 @@
-#include <Arduino.h>
 #include "network_utils.h"
+#include <Arduino.h>
 
 // Define MQ135 sensor pin
 #define MQ135_PIN_AO 34
 
 // WiFi and server configuration
 #ifndef WIFI_SSID
-#define WIFI_SSID "YOUR_WIFI_SSID"  // Fallback if not defined
+#define WIFI_SSID "YOUR_WIFI_SSID" // Fallback if not defined
 #endif
 
 #ifndef WIFI_PASSWORD
-#define WIFI_PASSWORD "YOUR_WIFI_PASSWORD"  // Fallback if not defined
+#define WIFI_PASSWORD "YOUR_WIFI_PASSWORD" // Fallback if not defined
 #endif
 
 #ifndef SERVER_IP
-#define SERVER_IP "192.168.1.100"  // Fallback if not defined
+#define SERVER_IP "192.168.1.100" // Fallback if not defined
 #endif
 
 #ifndef SERVER_PORT
-#define SERVER_PORT "5050"  // Fallback if not defined
+#define SERVER_PORT "5000" // Fallback if not defined
 #endif
 
 // Construct server URL
-const String SERVER_URL = "http://" + String(SERVER_IP) + ":" + String(SERVER_PORT) + "/data";
+const String SERVER_URL =
+    "http://" + String(SERVER_IP) + ":" + String(SERVER_PORT) + "/data";
 
 // Create network utilities instance
 NetworkUtils network(WIFI_SSID, WIFI_PASSWORD, SERVER_URL.c_str());
-
 
 void setup() {
   // Initialize serial communication
@@ -42,12 +42,12 @@ void setup() {
 
   // Initialize analog pin
   pinMode(MQ135_PIN_AO, INPUT);
-  
+
   // Always attempt to connect to WiFi
   if (!network.connectToWiFi()) {
     Serial.println("Failed to connect to WiFi. Continuing in offline mode.");
   }
-  
+
   Serial.println("MQ135 sensor initialized!");
   Serial.println("Waiting 5 seconds for sensor warm-up...");
   delay(5000);
@@ -59,11 +59,11 @@ void loop() {
   int rawAnalog = analogRead(MQ135_PIN_AO);
 
   // Convert to integer value (rounding)
-  int sensorValue = round(rawAnalog / 10.0);  // Round the result
+  int sensorValue = round(rawAnalog / 10.0); // Round the result
 
   // Post data to server only if SERVER_URL is set
   if (SERVER_URL.length() > 0) {
-    if (!network.postSensorData("Temperature", sensorValue)) {
+    if (!network.postSensorData("AirQuality", sensorValue)) {
       Serial.println("Failed to post sensor data");
     }
   } else {
