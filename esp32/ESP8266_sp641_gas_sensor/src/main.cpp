@@ -2,9 +2,8 @@
 #include <ESP8266WiFi.h>
 #include <stdlib.h>
 #include <Wire.h>
-#include <SensirionI2CSgp41.h>
+#include <SensirionI2CSgp40.h>
 #include <VOCGasIndexAlgorithm.h>
-#include <NOxGasIndexAlgorithm.h>
 
 // WiFi connection details from build flags
 #ifndef WIFI_SSID
@@ -18,38 +17,50 @@
 const char* ssid = WIFI_SSID;
 const char* password = WIFI_PASSWORD;
 
-// SGP41 sensor setup
-SensirionI2CSgp41 sgp41;
+// SGP40 sensor setup
+SensirionI2CSgp40 sgp40;
 VOCGasIndexAlgorithm vocAlgorithm;
-NOxGasIndexAlgorithm noxAlgorithm;
 
 // Conditioning duration in seconds
 const uint16_t CONDITIONING_DURATION_S = 10;
 
 // Variables to store sensor readings
 int32_t vocIndex = 0;
-int32_t noxIndex = 0;
 uint16_t srawVoc = 0;
-uint16_t srawNox = 0;
 
-// Function to initialize the SGP41 sensor
-void initSGP41() {
+// Function to initialize the SGP40 sensor
+void initSGP40() {
   uint16_t error;
   char errorMessage[256];
   
-  // Initialize I2C bus for SGP41 sensor
+  // Initialize I2C bus for SGP40 sensor
   Wire.begin(4, 5); // SDA on GPIO4 (D2), SCL on GPIO5 (D1)
   
-  // Initialize SGP41 sensor
-  sgp41.begin(Wire);
+  // Initialize SGP40 sensor
+  sgp40.begin(Wire);
   
-  // Initialize VOC and NOx algorithms
+  // Initialize VOC algorithm
   vocAlgorithm.begin(VOCALGORITHM_SAMPLING_INTERVAL);
-  noxAlgorithm.begin(NOXALGORITHM_SAMPLING_INTERVAL);
   
   // Check if sensor is responding
+  uint16_t serialNumber[3];
+  error = sgp40.getSerialNumber(serialNumber);
+  
+  if (error) {
+    Serial.print("Error getting serial number: ");
+    errorToString(error, errorMessage, 256);
+    Serial.println(errorMessage);
+  } else {
+    Serial.print("SGP40 Serial Number: ");
+    Serial.print(serialNumber[0], HEX);
+    Serial.print(serialNumber[1], HEX);
+    Serial.println(serialNumber[2], HEX);
+    Serial.println("SGP40 sensor detected!");
+  }
+  
+  // Self-test
   uint16_t testResult;
-  error = sgp41.executeSelfTest(testResult);
+  error = sgp40.executeSelfTest(testResult);
   if (error) {
     Serial.print("Error executing self-test: ");
     errorToString(error, errorMessage, 256);
@@ -58,16 +69,16 @@ void initSGP41() {
     Serial.print("Self-test failed, expected: 0xD400, got: 0x");
     Serial.println(testResult, HEX);
   } else {
-    Serial.println("SGP41 self-test successful!");
+    Serial.println("SGP40 self-test successful!");
   }
   
   // Conditioning phase
-  Serial.println("Starting SGP41 conditioning phase...");
+  Serial.println("Starting SGP40 conditioning phase...");
   uint16_t defaultRh = 0x8000; // 50% relative humidity
   uint16_t defaultT = 0x6666;  // 25°C
   
   for (uint16_t i = 0; i < CONDITIONING_DURATION_S; i++) {
-    error = sgp41.executeConditioning(defaultRh, defaultT, srawVoc);
+    error = sgp40.measureRawSignal(defaultRh, defaultT, srawVoc);
     if (error) {
       Serial.print("Error during conditioning: ");
       errorToString(error, errorMessage, 256);
@@ -83,7 +94,7 @@ void initSGP41() {
     delay(1000); // Wait 1 second
   }
   
-  Serial.println("SGP41 conditioning completed!");
+  Serial.println("SGP40 conditioning completed!");
 }
 
 void setup() {
@@ -99,9 +110,9 @@ void setup() {
     return;
   }
 
-  // Initialize SGP41 sensor
-  Serial.println("Initializing SGP41 sensor...");
-  initSGP41();
+  // Initialize SGP40 sensor
+  Serial.println("Initializing SGP40 sensor...");
+  initSGP40();
   
   // Connect to WiFi
   Serial.print("Connecting to WiFi: ");
@@ -145,29 +156,23 @@ void loop() {
     uint16_t defaultRh = 0x8000; // 50% relative humidity
     uint16_t defaultT = 0x6666;  // 25°C
     
-    // Measure VOC and NOx raw signals
-    error = sgp41.measureRawSignals(defaultRh, defaultT, srawVoc, srawNox);
+    // Measure VOC raw signal
+    error = sgp40.measureRawSignal(defaultRh, defaultT, srawVoc);
     
     if (error) {
-      Serial.print("Error measuring raw signals: ");
+      Serial.print("Error measuring raw signal: ");
       errorToString(error, errorMessage, 256);
       Serial.println(errorMessage);
     } else {
-      // Process raw signals with Gas Index Algorithms
+      // Process raw signal with VOC Gas Index Algorithm
       vocIndex = vocAlgorithm.process(srawVoc);
-      noxIndex = noxAlgorithm.process(srawNox);
       
       // Print sensor readings
-      Serial.println("SGP41 Measurements:");
+      Serial.println("SGP40 Measurements:");
       Serial.print("SRAW_VOC: ");
       Serial.print(srawVoc);
       Serial.print(" | VOC Index: ");
       Serial.println(vocIndex);
-      
-      Serial.print("SRAW_NOx: ");
-      Serial.print(srawNox);
-      Serial.print(" | NOx Index: ");
-      Serial.println(noxIndex);
       
       Serial.println("------------------------------");
     }
