@@ -2,9 +2,9 @@
 #include <ESP8266WiFi.h>
 #include <stdlib.h>
 
-// WiFi connection details will be retrieved from environment variables
-const char* ssid = NULL;
-const char* password = NULL;
+// WiFi connection details
+const char* ssid = "MikroTik-ED936E";
+const char* password = "boonofoxboonofox";
 
 // Function to translate WiFi status codes to readable text
 String getWiFiStatusString(wl_status_t status) {
@@ -78,24 +78,40 @@ void setup() {
   Serial.print("Free Heap: ");
   Serial.println(ESP.getFreeHeap());
   
-  // Get WiFi credentials from environment variables
-  ssid = getenv("WIFI_SSID");
-  password = getenv("WIFI_PASSWORD");
+  // WiFi credentials are now hardcoded
+  Serial.println("\nUsing hardcoded WiFi credentials");
 
-  if (!ssid || !password) {
-    Serial.println("\n[ERROR] WiFi credentials not found!");
-    Serial.println("Make sure WIFI_SSID and WIFI_PASSWORD environment variables are set.");
-    Serial.println("Note: Environment variables may not work as expected on ESP8266.");
-    Serial.println("Consider hardcoding credentials for testing purposes.");
+  // Scan for networks first
+  Serial.println("\nScanning for WiFi networks...");
+  int networksFound = WiFi.scanNetworks();
+  Serial.print(networksFound);
+  Serial.println(" networks found:");
+  
+  bool targetNetworkFound = false;
+  for (int i = 0; i < networksFound; i++) {
+    Serial.print(i + 1);
+    Serial.print(": ");
+    Serial.print(WiFi.SSID(i));
+    Serial.print(" (");
+    Serial.print(WiFi.RSSI(i));
+    Serial.print(" dBm) ");
+    Serial.println(WiFi.encryptionType(i) == ENC_TYPE_NONE ? "Open" : "Encrypted");
     
-    // For testing, you can uncomment and use these lines instead:
-    // ssid = "your_wifi_ssid";
-    // password = "your_wifi_password";
-    
-    printWiFiInfo();
-    return;
+    if (WiFi.SSID(i) == ssid) {
+      targetNetworkFound = true;
+    }
   }
-
+  
+  if (targetNetworkFound) {
+    Serial.print("\nTarget network '");
+    Serial.print(ssid);
+    Serial.println("' was found in scan results!");
+  } else {
+    Serial.print("\nWARNING: Target network '");
+    Serial.print(ssid);
+    Serial.println("' was NOT found in scan results!");
+  }
+  
   Serial.print("\nConnecting to WiFi network: ");
   Serial.println(ssid);
 
