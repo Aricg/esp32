@@ -39,8 +39,8 @@ void initSGP40() {
   // Initialize SGP40 sensor
   sgp40.begin(Wire);
   
-  // Initialize VOC algorithm with default parameters
-  vocAlgorithm.init();
+  // VOCGasIndexAlgorithm is initialized automatically
+  // No explicit initialization needed
   
   // Check if sensor is responding
   uint16_t serialNumber[3];
@@ -165,7 +165,7 @@ void loop() {
       Serial.println(errorMessage);
     } else {
       // Process raw signal with VOC Gas Index Algorithm
-      vocIndex = vocAlgorithm.process(static_cast<int32_t>(srawVoc));
+      vocIndex = vocAlgorithm.process(srawVoc);
       
       // Print sensor readings
       Serial.println("SGP40 Measurements:");
