@@ -3,8 +3,8 @@
 #include <stdlib.h>
 
 // WiFi connection details
-const char* ssid = "MikroTik-ED936E";
-const char* password = "boonofoxboonofox";
+const char* ssid = NULL;
+const char* password = NULL;
 
 // Function to translate WiFi status codes to readable text
 String getWiFiStatusString(wl_status_t status) {
@@ -78,8 +78,26 @@ void setup() {
   Serial.print("Free Heap: ");
   Serial.println(ESP.getFreeHeap());
   
-  // WiFi credentials are now hardcoded
-  Serial.println("\nUsing hardcoded WiFi credentials");
+  // Get WiFi credentials from environment variables
+  // Note: This won't work on ESP8266 directly, but we'll handle it in the code
+  Serial.println("\nAttempting to use WiFi credentials from environment");
+  
+  // For ESP8266, we need to set these values before uploading
+  // They should be set in your environment when compiling
+  #ifdef WIFI_SSID_VALUE
+    ssid = WIFI_SSID_VALUE;
+  #endif
+  
+  #ifdef WIFI_PASSWORD_VALUE
+    password = WIFI_PASSWORD_VALUE;
+  #endif
+  
+  if (!ssid || !password) {
+    Serial.println("[ERROR] WiFi credentials not found!");
+    Serial.println("Make sure to define WIFI_SSID_VALUE and WIFI_PASSWORD_VALUE in build flags");
+    printWiFiInfo();
+    return;
+  }
 
   // Scan for networks first
   Serial.println("\nScanning for WiFi networks...");
