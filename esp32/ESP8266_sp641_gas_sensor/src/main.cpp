@@ -39,12 +39,12 @@ void initSGP40() {
   // Initialize SGP40 sensor
   sgp40.begin(Wire);
   
-  // Initialize VOC algorithm
-  vocAlgorithm.begin(VOCALGORITHM_SAMPLING_INTERVAL);
+  // Initialize VOC algorithm with default parameters
+  vocAlgorithm.init();
   
   // Check if sensor is responding
   uint16_t serialNumber[3];
-  error = sgp40.getSerialNumber(serialNumber);
+  error = sgp40.getSerialNumber(serialNumber, 3);
   
   if (error) {
     Serial.print("Error getting serial number: ");
@@ -101,7 +101,7 @@ void setup() {
   // Initialize serial communication
   Serial.begin(115200);
   delay(1000);
-  Serial.println("\n\nESP8266 SGP41 Gas Sensor Test");
+  Serial.println("\n\nESP8266 SGP40 Gas Sensor Test");
   
   // Check for default credentials
   if (strcmp(ssid, "YOUR_WIFI_SSID") == 0 || strcmp(password, "YOUR_WIFI_PASSWORD") == 0) {
@@ -165,7 +165,7 @@ void loop() {
       Serial.println(errorMessage);
     } else {
       // Process raw signal with VOC Gas Index Algorithm
-      vocIndex = vocAlgorithm.process(srawVoc);
+      vocIndex = vocAlgorithm.process(static_cast<int32_t>(srawVoc));
       
       // Print sensor readings
       Serial.println("SGP40 Measurements:");
