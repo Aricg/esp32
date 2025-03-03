@@ -24,11 +24,11 @@ VOCGasIndexAlgorithm vocAlgorithm;
 // Conditioning duration in seconds
 const uint16_t CONDITIONING_DURATION_S = 10;
 
-// SGP40 I2C address (default is 0x59)
-// We'll try 0x62 as well since that was found in the scan
-const uint8_t SGP40_I2C_ADDRESS = 0x59;
-uint8_t alternativeI2CAddress = 0x62;
+// SGP40/41 I2C addresses
+const uint8_t SGP40_I2C_ADDRESS = 0x59; // Default address for both SGP40 and SGP41
+uint8_t alternativeI2CAddress = 0x62;   // Alternative address found in scan
 bool useAlternativeAddress = false;
+bool isSGP41 = false;                   // Flag to indicate if we're using SGP41
 
 // I2C pins
 const uint8_t SDA_PIN = 4; // D2 on NodeMCU
@@ -65,7 +65,9 @@ uint8_t calculateCRC8(uint8_t* data, uint8_t len) {
 
 // Variables to store sensor readings
 int32_t vocIndex = 0;
+int32_t noxIndex = 0;
 uint16_t srawVoc = 0;
+uint16_t srawNox = 0;
 
 // Function to scan I2C bus for devices
 void scanI2CBus() {
@@ -124,7 +126,7 @@ void scanI2CBus() {
           sgp40Found = true;
           break;
         case 0x62: // SP30 or other Sensirion sensor
-          Serial.print("Sensirion SP30 or other sensor");
+          Serial.print("Sensirion SP30/SGP41 or other sensor");
           break;
         default:
           Serial.print("unknown device");
@@ -187,6 +189,55 @@ bool testSGP40Commands(uint8_t address) {
   }
   
   return true;
+}
+
+// Function to test if a device is an SGP41
+bool testSGP41Device(uint8_t address) {
+  // Try SGP41-specific command: measure raw signals
+  Wire.beginTransmission(address);
+  Wire.write(0x23); // SGP41 measure raw signals command
+  Wire.write(0x03);
+  Wire.write(0x00); // Default humidity
+  Wire.write(0x80);
+  Wire.write(0x00); // CRC for humidity
+  Wire.write(0x66); // Default temperature
+  Wire.write(0x66);
+  Wire.write(0x93); // CRC for temperature
+  Wire.write(0x00); // NOx compensation
+  Wire.write(0x80);
+  Wire.write(0xA2); // CRC for NOx compensation
+  
+  if (Wire.endTransmission() != 0) {
+    return false;
+  }
+  
+  delay(50); // SGP41 needs more time
+  
+  // SGP41 should return 6 bytes (2 for VOC, 1 CRC, 2 for NOx, 1 CRC)
+  if (Wire.requestFrom((int)address, (int)6) != 6) {
+    return false;
+  }
+  
+  // Read the data
+  uint8_t data[6];
+  for (int i = 0; i < 6; i++) {
+    data[i] = Wire.read();
+  }
+  
+  // Check if we got reasonable data
+  uint16_t rawVoc = (data[0] << 8) | data[1];
+  uint16_t rawNox = (data[3] << 8) | data[4];
+  
+  // If we got non-zero values, it's likely an SGP41
+  if (rawVoc > 0 && rawNox > 0) {
+    Serial.print("SGP41 detected! Raw VOC: ");
+    Serial.print(rawVoc);
+    Serial.print(", Raw NOx: ");
+    Serial.println(rawNox);
+    return true;
+  }
+  
+  return false;
 }
 
 // Function to try different I2C speeds and addresses
@@ -403,7 +454,17 @@ bool initSGP40() {
   Wire.beginTransmission(alternativeI2CAddress);
   if (Wire.endTransmission() == 0) {
     Serial.println("Found device at address 0x62 - this might be your sensor with a non-standard address");
-    Serial.println("Let's try to use this device directly...");
+    
+    // First, check if it's an SGP41
+    if (testSGP41Device(alternativeI2CAddress)) {
+      Serial.println("Device at 0x62 appears to be an SGP41 sensor!");
+      useAlternativeAddress = true;
+      isSGP41 = true;
+      return true;
+    }
+    
+    // If not SGP41, try as SGP40
+    Serial.println("Let's try to use this device directly as SGP40...");
     
     // Create a custom I2C implementation for address 0x62
     useAlternativeAddress = true;
@@ -448,6 +509,17 @@ bool initSGP40() {
     } else {
       Serial.println("Failed to send command to device at 0x62");
       useAlternativeAddress = false;
+    }
+  }
+  
+  // Also check if the standard address 0x59 is an SGP41
+  Wire.beginTransmission(SGP40_I2C_ADDRESS);
+  if (Wire.endTransmission() == 0) {
+    if (testSGP41Device(SGP40_I2C_ADDRESS)) {
+      Serial.println("Device at 0x59 appears to be an SGP41 sensor!");
+      useAlternativeAddress = false;
+      isSGP41 = true;
+      return true;
     }
   }
   
@@ -634,9 +706,51 @@ void loop() {
       static int errorCount = 0;
       static bool rescanNeeded = false;
       
-      // Measure VOC raw signal
-      if (useAlternativeAddress) {
-        // Use direct I2C communication for the alternative address
+      // Measure raw signals
+      if (isSGP41) {
+        // Use SGP41-specific commands
+        uint8_t address = useAlternativeAddress ? alternativeI2CAddress : SGP40_I2C_ADDRESS;
+        
+        // SGP41 measure raw signals command
+        Wire.beginTransmission(address);
+        Wire.write(0x23); // SGP41 measure raw signals command
+        Wire.write(0x03);
+        Wire.write(0x00); // Default humidity
+        Wire.write(0x80);
+        Wire.write(0x00); // CRC for humidity
+        Wire.write(0x66); // Default temperature
+        Wire.write(0x66);
+        Wire.write(0x93); // CRC for temperature
+        Wire.write(0x00); // NOx compensation
+        Wire.write(0x80);
+        Wire.write(0xA2); // CRC for NOx compensation
+        
+        error = Wire.endTransmission();
+        
+        if (error == 0) {
+          delay(50); // SGP41 needs more time
+          
+          // Read response (6 bytes: 2 for VOC, 1 CRC, 2 for NOx, 1 CRC)
+          if (Wire.requestFrom((int)address, (int)6) == 6) {
+            uint8_t data[6];
+            for (int i = 0; i < 6; i++) {
+              data[i] = Wire.read();
+            }
+            
+            srawVoc = (data[0] << 8) | data[1];
+            srawNox = (data[3] << 8) | data[4];
+            
+            // Process both VOC and NOx values
+            vocIndex = vocAlgorithm.process(srawVoc);
+            noxIndex = vocAlgorithm.process(srawNox); // Using VOC algorithm for NOx too
+            
+            error = 0; // No error
+          } else {
+            error = 1; // Error reading data
+          }
+        }
+      } else if (useAlternativeAddress) {
+        // Use direct I2C communication for SGP40 at alternative address
         Wire.beginTransmission(alternativeI2CAddress);
         Wire.write(0x20); // SGP40 measure command
         Wire.write(0x08);
@@ -660,14 +774,18 @@ void loop() {
             }
             
             srawVoc = (data[0] << 8) | data[1];
+            vocIndex = vocAlgorithm.process(srawVoc);
             error = 0; // No error
           } else {
             error = 1; // Error reading data
           }
         }
       } else {
-        // Use the library for the standard address
+        // Use the library for the standard SGP40 address
         error = sgp40.measureRawSignal(defaultRh, defaultT, srawVoc);
+        if (error == 0) {
+          vocIndex = vocAlgorithm.process(srawVoc);
+        }
       }
       
       if (error) {
@@ -705,33 +823,88 @@ void loop() {
         vocIndex = vocAlgorithm.process(srawVoc);
         
         // Print sensor readings
-        Serial.println("SGP40 Measurements:");
-        Serial.print("SRAW_VOC: ");
-        Serial.print(srawVoc);
-        Serial.print(" | VOC Index: ");
-        Serial.println(vocIndex);
-        
-        // Add more detailed information about the raw value
-        Serial.print("Raw value in hex: 0x");
-        Serial.println(srawVoc, HEX);
-        Serial.print("Using address: 0x");
-        Serial.println(useAlternativeAddress ? alternativeI2CAddress : SGP40_I2C_ADDRESS, HEX);
-        
-        // VOC Index interpretation
-        Serial.print("Air Quality: ");
-        if (vocIndex <= 10) {
-          Serial.println("Excellent");
-        } else if (vocIndex <= 50) {
-          Serial.println("Good");
-        } else if (vocIndex <= 100) {
-          Serial.println("Moderate");
-        } else if (vocIndex <= 150) {
-          Serial.println("Poor");
-        } else if (vocIndex <= 200) {
-          Serial.println("Unhealthy");
+        if (isSGP41) {
+          Serial.println("SGP41 Measurements:");
+          Serial.print("SRAW_VOC: ");
+          Serial.print(srawVoc);
+          Serial.print(" | VOC Index: ");
+          Serial.println(vocIndex);
+          
+          Serial.print("SRAW_NOx: ");
+          Serial.print(srawNox);
+          Serial.print(" | NOx Index: ");
+          Serial.println(noxIndex);
+          
+          // Add more detailed information
+          Serial.print("VOC raw value in hex: 0x");
+          Serial.println(srawVoc, HEX);
+          Serial.print("NOx raw value in hex: 0x");
+          Serial.println(srawNox, HEX);
+          
+          // VOC Index interpretation
+          Serial.print("VOC Air Quality: ");
+          if (vocIndex <= 10) {
+            Serial.println("Excellent");
+          } else if (vocIndex <= 50) {
+            Serial.println("Good");
+          } else if (vocIndex <= 100) {
+            Serial.println("Moderate");
+          } else if (vocIndex <= 150) {
+            Serial.println("Poor");
+          } else if (vocIndex <= 200) {
+            Serial.println("Unhealthy");
+          } else {
+            Serial.println("Very Unhealthy");
+          }
+          
+          // NOx Index interpretation
+          Serial.print("NOx Air Quality: ");
+          if (noxIndex <= 10) {
+            Serial.println("Excellent");
+          } else if (noxIndex <= 50) {
+            Serial.println("Good");
+          } else if (noxIndex <= 100) {
+            Serial.println("Moderate");
+          } else if (noxIndex <= 150) {
+            Serial.println("Poor");
+          } else if (noxIndex <= 200) {
+            Serial.println("Unhealthy");
+          } else {
+            Serial.println("Very Unhealthy");
+          }
         } else {
-          Serial.println("Very Unhealthy");
+          Serial.println("SGP40 Measurements:");
+          Serial.print("SRAW_VOC: ");
+          Serial.print(srawVoc);
+          Serial.print(" | VOC Index: ");
+          Serial.println(vocIndex);
+          
+          // Add more detailed information about the raw value
+          Serial.print("Raw value in hex: 0x");
+          Serial.println(srawVoc, HEX);
+          
+          // VOC Index interpretation
+          Serial.print("Air Quality: ");
+          if (vocIndex <= 10) {
+            Serial.println("Excellent");
+          } else if (vocIndex <= 50) {
+            Serial.println("Good");
+          } else if (vocIndex <= 100) {
+            Serial.println("Moderate");
+          } else if (vocIndex <= 150) {
+            Serial.println("Poor");
+          } else if (vocIndex <= 200) {
+            Serial.println("Unhealthy");
+          } else {
+            Serial.println("Very Unhealthy");
+          }
         }
+        
+        Serial.print("Using address: 0x");
+        Serial.print(useAlternativeAddress ? alternativeI2CAddress : SGP40_I2C_ADDRESS, HEX);
+        Serial.print(" (");
+        Serial.print(isSGP41 ? "SGP41" : "SGP40");
+        Serial.println(")");
         
         Serial.println("------------------------------");
       }
