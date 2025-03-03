@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <Wire.h>
 #include <Adafruit_SGP30.h>
+#include <Adafruit_SGP40.h>
 #include <ESP8266WiFi.h>
 
 // Define pins for I2C
@@ -11,16 +12,18 @@
 const char* ssid = WIFI_SSID;
 const char* password = WIFI_PASSWORD;
 
-// Create SGP30 object
-Adafruit_SGP30 sgp;
+// Create sensor objects
+Adafruit_SGP30 sgp30;
+Adafruit_SGP40 sgp40;
 
 // Function prototypes
 void scanI2CBus();
 String detectSensorType(uint8_t address);
 uint32_t getAbsoluteHumidity(float temperature, float humidity);
 
-// Global variables for manual reading
+// Global variables for sensor control
 bool useManualReading = false;
+bool useSGP40 = false;
 uint8_t sensorAddress = 0x58; // Default address
 String sensorType = "Unknown"; // Will store detected sensor type: SGP30, SGP40, SGP41, or Unknown
 
@@ -156,21 +159,45 @@ void setup() {
   // Now try the Adafruit library initialization with multiple attempts
   bool sensorFound = false;
   
-  // First try with standard library
+  // First try with SGP30 library
   for (int attempt = 1; attempt <= 2 && !sensorFound; attempt++) {
     Serial.print("SGP30 init attempt ");
     Serial.print(attempt);
     Serial.println("/2 (standard address)");
     delay(50);
     
-    sensorFound = sgp.begin();
+    sensorFound = sgp30.begin();
     
     if (sensorFound) {
       Serial.println("SGP30 sensor initialized successfully at 0x58!");
+      sensorType = "SGP30";
       delay(50);
     } else {
       Serial.println("SGP30 init failed at standard address");
       delay(500);
+    }
+  }
+  
+  // If SGP30 failed, try SGP40
+  if (!sensorFound) {
+    Serial.println("Trying SGP40 initialization...");
+    
+    for (int attempt = 1; attempt <= 2 && !sensorFound; attempt++) {
+      Serial.print("SGP40 init attempt ");
+      Serial.print(attempt);
+      Serial.println("/2");
+      delay(50);
+      
+      if (sgp40.begin()) {
+        Serial.println("SGP40 sensor initialized successfully!");
+        sensorFound = true;
+        useSGP40 = true;
+        sensorType = "SGP40";
+        delay(50);
+      } else {
+        Serial.println("SGP40 init failed");
+        delay(500);
+      }
     }
   }
   
@@ -300,12 +327,16 @@ void setup() {
       Serial.println("The program will continue but sensor readings will be invalid.");
     }
   } else {
-    // Sensor found, print serial number if using standard library
+    // Sensor found, print serial number if available
     if (!useManualReading) {
-      Serial.print("Found SGP30 serial #");
-      Serial.print(sgp.serialnumber[0], HEX);
-      Serial.print(sgp.serialnumber[1], HEX);
-      Serial.println(sgp.serialnumber[2], HEX);
+      if (sensorType == "SGP30") {
+        Serial.print("Found SGP30 serial #");
+        Serial.print(sgp30.serialnumber[0], HEX);
+        Serial.print(sgp30.serialnumber[1], HEX);
+        Serial.println(sgp30.serialnumber[2], HEX);
+      } else if (sensorType == "SGP40") {
+        Serial.println("SGP40 detected (serial number not available)");
+      }
     }
     
     // Print which mode we're using
@@ -415,12 +446,21 @@ void loop() {
             }
           }
         }
+      } else if (useSGP40) {
+        // SGP40 library reading
+        int32_t voc_index = sgp40.measureVOC();
+        if (voc_index >= 0) {
+          // SGP40 only provides VOC index, not eCO2
+          TVOC = voc_index;
+          eCO2 = 400 + (voc_index * 3); // Rough approximation
+          readSuccess = true;
+        }
       } else {
-        // Standard library reading
-        readSuccess = sgp.IAQmeasure();
+        // SGP30 library reading
+        readSuccess = sgp30.IAQmeasure();
         if (readSuccess) {
-          TVOC = sgp.TVOC;
-          eCO2 = sgp.eCO2;
+          TVOC = sgp30.TVOC;
+          eCO2 = sgp30.eCO2;
         }
       }
       
@@ -448,8 +488,10 @@ void loop() {
             Wire.write(0x03);
             byte error = Wire.endTransmission();
             sensorWorking = (error == 0);
+          } else if (useSGP40) {
+            sensorWorking = sgp40.begin();
           } else {
-            sensorWorking = sgp.begin();
+            sensorWorking = sgp30.begin();
           }
           
           if (sensorWorking) {
@@ -480,7 +522,11 @@ void loop() {
         lastReconnectAttempt = millis();
         Serial.println("Reconnecting to sensor...");
         delay(10);
-        sensorWorking = sgp.begin();
+        if (useSGP40) {
+          sensorWorking = sgp40.begin();
+        } else {
+          sensorWorking = sgp30.begin();
+        }
         if (sensorWorking) {
           Serial.println("Sensor reconnected");
           delay(10);
@@ -500,8 +546,8 @@ void loop() {
     lastBaseline = millis();
     
     // For standard library
-    if (!useManualReading) {
-      if (sgp.getIAQBaseline(&eCO2_base, &TVOC_base)) {
+    if (!useManualReading && !useSGP40) {
+      if (sgp30.getIAQBaseline(&eCO2_base, &TVOC_base)) {
         Serial.print("Baseline values: eCO2: 0x");
         Serial.print(eCO2_base, HEX);
         Serial.print(", TVOC: 0x");
@@ -510,7 +556,10 @@ void loop() {
       } else {
         Serial.println("Failed to get baseline readings");
       }
-    } 
+    } else if (useSGP40) {
+      // SGP40 doesn't have the same baseline concept
+      Serial.println("SGP40 hourly maintenance checkpoint");
+    }
     // For manual reading mode
     else {
       // Just log the time
