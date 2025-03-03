@@ -31,6 +31,9 @@ void setup() {
   // Initialize I2C with custom pins
   Wire.begin(SDA_PIN, SCL_PIN);
   
+  // Scan I2C bus to see what devices are connected
+  scanI2CBus();
+  
   // Connect to WiFi
   WiFi.begin(ssid, password);
   Serial.print("Connecting to WiFi");
@@ -42,10 +45,41 @@ void setup() {
   Serial.print("Connected to WiFi, IP address: ");
   Serial.println(WiFi.localIP());
 
-  // Initialize SGP30 sensor
-  if (!sgp.begin()) {
-    Serial.println("SGP30 sensor not found. Check wiring!");
-    while (1);
+  // Try to initialize SGP30 sensor with a few attempts
+  int attempts = 0;
+  bool sensorFound = false;
+  
+  while (!sensorFound && attempts < 5) {
+    Serial.print("Attempting to initialize SGP30 (attempt ");
+    Serial.print(attempts + 1);
+    Serial.println("/5)");
+    
+    // Print I2C pins being used
+    Serial.print("Using I2C - SDA: ");
+    Serial.print(SDA_PIN);
+    Serial.print(", SCL: ");
+    Serial.println(SCL_PIN);
+    
+    sensorFound = sgp.begin();
+    
+    if (sensorFound) {
+      Serial.println("SGP30 sensor found!");
+    } else {
+      Serial.println("SGP30 sensor not found. Retrying in 1 second...");
+      delay(1000);
+      attempts++;
+    }
+  }
+  
+  if (!sensorFound) {
+    Serial.println("Failed to find SGP30 sensor after multiple attempts.");
+    Serial.println("The program will continue but sensor readings will be invalid.");
+  } else {
+    // Sensor found, print serial number
+    Serial.print("Found SGP30 serial #");
+    Serial.print(sgp.serialnumber[0], HEX);
+    Serial.print(sgp.serialnumber[1], HEX);
+    Serial.println(sgp.serialnumber[2], HEX);
   }
   
   Serial.print("Found SGP30 serial #");
@@ -65,16 +99,17 @@ void loop() {
     // Measure TVOC and eCO2
     if (!sgp.IAQmeasure()) {
       Serial.println("Measurement failed");
-      return;
+      // Don't return, just skip this reading
+    } else {
+    
+      // Read sensor values
+      TVOC = sgp.TVOC;
+      eCO2 = sgp.eCO2;
+      
+      // Print readings
+      Serial.print("TVOC: "); Serial.print(TVOC); Serial.println(" ppb");
+      Serial.print("eCO2: "); Serial.print(eCO2); Serial.println(" ppm");
     }
-    
-    // Read sensor values
-    TVOC = sgp.TVOC;
-    eCO2 = sgp.eCO2;
-    
-    // Print readings
-    Serial.print("TVOC: "); Serial.print(TVOC); Serial.println(" ppb");
-    Serial.print("eCO2: "); Serial.print(eCO2); Serial.println(" ppm");
     
     // Optional: Set absolute humidity to improve accuracy (uncomment if you have temp/humidity sensor)
     // float temperature = 22.1; // Replace with actual temperature reading
@@ -99,6 +134,42 @@ void loop() {
   
   // Yield to prevent watchdog timer from triggering
   yield();
+}
+
+// Function to scan I2C bus for devices
+void scanI2CBus() {
+  Serial.println("Scanning I2C bus...");
+  byte error, address;
+  int deviceCount = 0;
+  
+  for(address = 1; address < 127; address++) {
+    Wire.beginTransmission(address);
+    error = Wire.endTransmission();
+    
+    if (error == 0) {
+      Serial.print("I2C device found at address 0x");
+      if (address < 16) {
+        Serial.print("0");
+      }
+      Serial.print(address, HEX);
+      Serial.println(" !");
+      deviceCount++;
+    } else if (error == 4) {
+      Serial.print("Unknown error at address 0x");
+      if (address < 16) {
+        Serial.print("0");
+      }
+      Serial.println(address, HEX);
+    }
+  }
+  
+  if (deviceCount == 0) {
+    Serial.println("No I2C devices found");
+  } else {
+    Serial.print("Found ");
+    Serial.print(deviceCount);
+    Serial.println(" device(s)");
+  }
 }
 
 // Function to convert relative humidity to absolute humidity
