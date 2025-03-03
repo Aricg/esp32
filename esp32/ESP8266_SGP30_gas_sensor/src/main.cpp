@@ -480,11 +480,22 @@ void loop() {
           }
         }
       } else if (useSGP40) {
-        // SGP40 library reading - use the VOC algorithm
-        int32_t voc_index = sgp40.measureVOC();
-        if (voc_index >= 0) {
-          // SGP40 provides VOC index (0-500 scale)
-          TVOC = voc_index; // This is already processed by the library
+        // SGP40 library reading - get raw value and convert to VOC index
+        int32_t raw_reading = sgp40.measureRaw();
+        if (raw_reading >= 0) {
+          // Process the raw reading to get a VOC index
+          // SGP40 raw values are typically in the 20,000-40,000 range
+          int voc_index;
+          if (raw_reading > 40000) {
+            voc_index = 500; // Very high VOC
+          } else if (raw_reading < 20000) {
+            voc_index = 0; // Very low VOC
+          } else {
+            // Map 20000-40000 to 0-500
+            voc_index = map(raw_reading, 20000, 40000, 0, 500);
+          }
+          
+          TVOC = voc_index;
           
           // Convert VOC index to approximate eCO2 (very rough estimate)
           // VOC index of 100 is "normal", higher is worse air quality
@@ -497,7 +508,9 @@ void loop() {
           readSuccess = true;
           
           // Debug info
-          Serial.print("SGP40 VOC Index: ");
+          Serial.print("SGP40 Raw: ");
+          Serial.print(raw_reading);
+          Serial.print(", VOC Index: ");
           Serial.println(voc_index);
         }
       } else {
