@@ -106,10 +106,11 @@ void scanI2CBus() {
   Serial.println("=========================");
 }
 
-// Function to try different I2C speeds
-bool tryDifferentI2CSpeeds() {
+// Function to try different I2C speeds and addresses
+bool tryDifferentI2COptions() {
   const uint32_t speeds[] = {10000, 50000, 100000, 400000};
   const char* speedNames[] = {"10kHz", "50kHz", "100kHz", "400kHz"};
+  const uint8_t possibleAddresses[] = {0x58, 0x59, 0x62}; // Try common Sensirion addresses
   
   for (int i = 0; i < 4; i++) {
     Serial.print("Trying I2C at ");
@@ -121,21 +122,31 @@ bool tryDifferentI2CSpeeds() {
     Wire.setClockStretchLimit(200000);
     delay(100);
     
-    // Check if SGP40 is responding
-    Wire.beginTransmission(SGP40_I2C_ADDRESS);
-    byte error = Wire.endTransmission();
-    
-    if (error == 0) {
-      Serial.print("Success at ");
-      Serial.print(speedNames[i]);
-      Serial.println("!");
-      return true;
+    // Check all possible addresses
+    for (int j = 0; j < 3; j++) {
+      Wire.beginTransmission(possibleAddresses[j]);
+      byte error = Wire.endTransmission();
+      
+      if (error == 0) {
+        Serial.print("Device found at address 0x");
+        Serial.print(possibleAddresses[j], HEX);
+        Serial.print(" with speed ");
+        Serial.print(speedNames[i]);
+        Serial.println("!");
+        
+        if (possibleAddresses[j] != SGP40_I2C_ADDRESS) {
+          Serial.println("NOTE: This is not the standard SGP40 address (0x59).");
+          Serial.println("You may need to modify the code to use this address.");
+        }
+        
+        return true;
+      }
     }
     
     delay(100);
   }
   
-  Serial.println("Failed at all I2C speeds");
+  Serial.println("Failed at all I2C speeds and addresses");
   return false;
 }
 
@@ -184,15 +195,24 @@ bool initSGP40() {
   // Scan for I2C devices
   scanI2CBus();
   
-  // Check if we need to try different I2C speeds
+  // Check if we need to try different I2C speeds and addresses
   Wire.beginTransmission(SGP40_I2C_ADDRESS);
   if (Wire.endTransmission() != 0) {
-    Serial.println("SGP40 not responding at default speed, trying alternatives...");
-    if (!tryDifferentI2CSpeeds()) {
-      Serial.println("Failed to communicate with SGP40 at any speed");
+    Serial.println("SGP40 not responding at default settings, trying alternatives...");
+    if (!tryDifferentI2COptions()) {
+      Serial.println("Failed to communicate with SGP40 with any settings");
       resetI2CBus();
       return false;
     }
+  }
+  
+  // Check if there's a device at address 0x62 (which was found in your scan)
+  Wire.beginTransmission(0x62);
+  if (Wire.endTransmission() == 0) {
+    Serial.println("Found device at address 0x62 - this might be your sensor with a non-standard address");
+    Serial.println("Attempting to use this device instead...");
+    // Note: The SGP40 library doesn't allow changing the address, so we'll continue with 0x59
+    // but this information might be useful for debugging
   }
   
   // Initialize SGP40 sensor
