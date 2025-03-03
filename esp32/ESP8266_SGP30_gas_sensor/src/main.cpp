@@ -29,7 +29,8 @@ bool baselineValid = false;
 void setup() {
   // Initialize serial communication
   Serial.begin(9600);
-  Serial.println("\nSGP30 Gas Sensor Test");
+  delay(100); // Give serial port time to initialize
+  Serial.println("\n\n--- SGP30 Gas Sensor Test ---");
 
   // Initialize I2C with custom pins
   Wire.begin(SDA_PIN, SCL_PIN);
@@ -48,58 +49,50 @@ void setup() {
   Serial.print("Connected to WiFi, IP address: ");
   Serial.println(WiFi.localIP());
 
-  // Try to initialize SGP30 sensor with a few attempts
-  int attempts = 0;
+  // Try to initialize SGP30 sensor
+  Serial.println("Initializing SGP30 sensor...");
+  delay(50);
+  
+  // Set I2C to a slower speed for better reliability
+  Wire.setClock(10000); // 10 kHz
+  Serial.println("I2C clock set to 10 kHz for stability");
+  delay(50);
+  
+  Serial.print("Using I2C pins - SDA: ");
+  Serial.print(SDA_PIN);
+  Serial.print(", SCL: ");
+  Serial.println(SCL_PIN);
+  delay(50);
+  
+  // Try direct I2C communication first
+  Wire.beginTransmission(0x58); // SGP30 address
+  byte error = Wire.endTransmission();
+  
+  if (error == 0) {
+    Serial.println("Direct I2C communication with SGP30 successful");
+    delay(50);
+  } else {
+    Serial.print("Direct I2C communication failed with error: ");
+    Serial.println(error);
+    delay(50);
+  }
+  
+  // Now try the Adafruit library initialization with multiple attempts
   bool sensorFound = false;
-  
-  // Try with different I2C frequencies
-  uint32_t frequencies[] = {100000, 50000, 10000}; // Standard, slower, very slow
-  
-  for (uint8_t freqIndex = 0; freqIndex < 3 && !sensorFound; freqIndex++) {
-    Wire.setClock(frequencies[freqIndex]);
-    Serial.print("Setting I2C frequency to ");
-    Serial.print(frequencies[freqIndex] / 1000);
-    Serial.println(" kHz");
+  for (int attempt = 1; attempt <= 3 && !sensorFound; attempt++) {
+    Serial.print("SGP30 init attempt ");
+    Serial.print(attempt);
+    Serial.println("/3");
+    delay(50);
     
-    attempts = 0;
-    while (!sensorFound && attempts < 3) {
-      Serial.print("Attempting to initialize SGP30 (attempt ");
-      Serial.print(attempts + 1);
-      Serial.print("/3 at ");
-      Serial.print(frequencies[freqIndex] / 1000);
-      Serial.println(" kHz)");
-      
-      // Print I2C pins being used
-      Serial.print("Using I2C - SDA: ");
-      Serial.print(SDA_PIN);
-      Serial.print(", SCL: ");
-      Serial.println(SCL_PIN);
-      
-      // Try direct I2C communication first
-      Wire.beginTransmission(0x58); // SGP30 address
-      byte error = Wire.endTransmission();
-      
-      if (error == 0) {
-        Serial.println("Direct I2C communication with SGP30 successful!");
-      } else {
-        Serial.print("Direct I2C communication failed with error: ");
-        Serial.println(error);
-      }
-      
-      // Now try the Adafruit library initialization
-      sensorFound = sgp.begin();
-      
-      if (sensorFound) {
-        Serial.println("SGP30 sensor found and initialized!");
-      } else {
-        Serial.println("SGP30 sensor initialization failed. Retrying in 1 second...");
-        delay(1000);
-        attempts++;
-      }
-    }
+    sensorFound = sgp.begin();
     
     if (sensorFound) {
-      break; // Exit the frequency loop if sensor is found
+      Serial.println("SGP30 sensor initialized successfully!");
+      delay(50);
+    } else {
+      Serial.println("SGP30 init failed, retrying...");
+      delay(1000);
     }
   }
   
@@ -121,6 +114,7 @@ void setup() {
 void loop() {
   static uint8_t failCount = 0;
   static bool sensorWorking = true;
+  static uint32_t printInterval = 0;
   
   // Measure every second
   if (millis() - lastMeasurement > 1000) {
@@ -130,19 +124,25 @@ void loop() {
       // Measure TVOC and eCO2
       if (!sgp.IAQmeasure()) {
         failCount++;
-        Serial.print("Measurement failed (");
-        Serial.print(failCount);
-        Serial.println("/5)");
+        
+        // Only print every 5 seconds to reduce serial traffic
+        if (millis() - printInterval > 5000) {
+          printInterval = millis();
+          Serial.print("Measurement failed (");
+          Serial.print(failCount);
+          Serial.println("/5)");
+          delay(10);
+        }
         
         // After 5 consecutive failures, try to reinitialize
         if (failCount >= 5) {
-          Serial.println("Too many failures, attempting to reinitialize sensor...");
+          Serial.println("Reinitializing sensor...");
+          delay(10);
           sensorWorking = sgp.begin();
           if (sensorWorking) {
-            Serial.println("Sensor reinitialized successfully!");
+            Serial.println("Sensor reinitialized OK");
+            delay(10);
             failCount = 0;
-          } else {
-            Serial.println("Failed to reinitialize sensor. Will retry later.");
           }
         }
       } else {
@@ -153,22 +153,29 @@ void loop() {
         TVOC = sgp.TVOC;
         eCO2 = sgp.eCO2;
         
-        // Print readings
-        Serial.print("TVOC: "); Serial.print(TVOC); Serial.println(" ppb");
-        Serial.print("eCO2: "); Serial.print(eCO2); Serial.println(" ppm");
+        // Print readings every 2 seconds to reduce serial traffic
+        if (millis() - printInterval > 2000) {
+          printInterval = millis();
+          Serial.print("TVOC: "); 
+          Serial.print(TVOC); 
+          Serial.print(" ppb, eCO2: "); 
+          Serial.print(eCO2); 
+          Serial.println(" ppm");
+          delay(10);
+        }
       }
     } else {
       // Try to reinitialize the sensor periodically
       static uint32_t lastReconnectAttempt = 0;
       if (millis() - lastReconnectAttempt > 30000) { // Try every 30 seconds
         lastReconnectAttempt = millis();
-        Serial.println("Attempting to reconnect to sensor...");
+        Serial.println("Reconnecting to sensor...");
+        delay(10);
         sensorWorking = sgp.begin();
         if (sensorWorking) {
-          Serial.println("Sensor reconnected successfully!");
+          Serial.println("Sensor reconnected");
+          delay(10);
           failCount = 0;
-        } else {
-          Serial.println("Failed to reconnect to sensor. Will retry later.");
         }
       }
     }
@@ -201,52 +208,44 @@ void loop() {
 // Function to scan I2C bus for devices
 void scanI2CBus() {
   Serial.println("Scanning I2C bus...");
+  delay(50);
+  
   byte error, address;
   int deviceCount = 0;
-  bool sgp30Found = false;
   
+  // The SGP30 should be at address 0x58
   for(address = 1; address < 127; address++) {
+    delay(10); // Small delay between transmissions for stability
+    
     Wire.beginTransmission(address);
     error = Wire.endTransmission();
     
     if (error == 0) {
-      Serial.print("I2C device found at address 0x");
-      if (address < 16) {
-        Serial.print("0");
-      }
+      Serial.print("Device at 0x");
+      if (address < 16) Serial.print("0");
       Serial.print(address, HEX);
       
-      // Check if this is the SGP30 address (0x58)
       if (address == 0x58) {
-        Serial.println(" - This is the SGP30 sensor!");
-        sgp30Found = true;
+        Serial.println(" (SGP30 sensor)");
       } else if (address == 0x59) {
-        Serial.println(" - This might be the SGP30 sensor (alternate address)!");
-        sgp30Found = true;
+        Serial.println(" (Possible SGP30 alternate address)");
       } else {
-        Serial.println(" !");
+        Serial.println(" (Unknown device)");
       }
       
       deviceCount++;
-    } else if (error == 4) {
-      Serial.print("Unknown error at address 0x");
-      if (address < 16) {
-        Serial.print("0");
-      }
-      Serial.println(address, HEX);
+      delay(50); // Give serial time to send
     }
   }
   
   if (deviceCount == 0) {
-    Serial.println("No I2C devices found");
+    Serial.println("No I2C devices found!");
+    delay(50);
   } else {
     Serial.print("Found ");
     Serial.print(deviceCount);
     Serial.println(" device(s)");
-    
-    if (!sgp30Found) {
-      Serial.println("WARNING: SGP30 sensor (expected at address 0x58) was NOT found!");
-    }
+    delay(50);
   }
 }
 
