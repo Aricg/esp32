@@ -143,10 +143,6 @@ bool tryDifferentI2CSpeeds() {
 void resetI2CBus() {
   Serial.println("Resetting I2C bus...");
   
-  // Release I2C bus
-  Wire.end();
-  delay(100);
-  
   // Toggle SDA line to unstick any stuck devices
   pinMode(SDA_PIN, OUTPUT);
   for (int i = 0; i < 16; i++) {
