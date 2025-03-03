@@ -448,7 +448,7 @@ void loop() {
         }
       } else if (useSGP40) {
         // SGP40 library reading
-        int32_t voc_index = sgp40.measureVOC();
+        int32_t voc_index = sgp40.measureRaw();
         if (voc_index >= 0) {
           // SGP40 only provides VOC index, not eCO2
           TVOC = voc_index;
