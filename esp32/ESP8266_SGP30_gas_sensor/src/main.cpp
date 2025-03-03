@@ -28,7 +28,7 @@ bool baselineValid = false;
 
 void setup() {
   // Initialize serial communication
-  Serial.begin(115200);
+  Serial.begin(9600);
   Serial.println("\nSGP30 Gas Sensor Test");
 
   // Initialize I2C with custom pins
