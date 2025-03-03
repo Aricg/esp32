@@ -75,24 +75,16 @@ void setup() {
   Serial.println(SCL_PIN);
   delay(50);
   
-  // Try to reset I2C bus if needed
-  Serial.println("Attempting I2C reset...");
-  pinMode(SDA_PIN, OUTPUT);
-  pinMode(SCL_PIN, OUTPUT);
+  // Try a gentler I2C reset approach
+  Serial.println("Performing gentle I2C reset...");
   
-  // Toggle SCL to release SDA if stuck
-  digitalWrite(SCL_PIN, HIGH);
+  // End any pending transmission
+  Wire.endTransmission(true);
   delay(100);
-  for(int i = 0; i < 10; i++) {
-    digitalWrite(SCL_PIN, LOW);
-    delay(10);
-    digitalWrite(SCL_PIN, HIGH);
-    delay(10);
-  }
   
-  // Re-initialize I2C
+  // Re-initialize I2C with pullups enabled
   Wire.begin(SDA_PIN, SCL_PIN);
-  delay(100);
+  delay(200);
   
   // Try direct I2C communication first with both addresses
   Wire.beginTransmission(0x58); // Standard SGP address
@@ -245,8 +237,68 @@ void setup() {
   }
   
   if (!sensorFound) {
-    Serial.println("Failed to find SGP30 sensor after multiple attempts.");
-    Serial.println("The program will continue but sensor readings will be invalid.");
+    // Try one more approach - direct communication with device at 0x59
+    if (foundAt0x59) {
+      Serial.println("Trying direct communication with device at 0x59 as last resort...");
+      
+      // Try different commands for different sensor types
+      bool success = false;
+      
+      // Try SGP30 command
+      Wire.beginTransmission(0x59);
+      Wire.write(0x20); // Measure air quality command for SGP30
+      Wire.write(0x08);
+      byte error = Wire.endTransmission();
+      
+      if (error == 0) {
+        delay(50);
+        if (Wire.requestFrom((uint8_t)0x59, (uint8_t)6) == 6) {
+          uint16_t co2 = (Wire.read() << 8) | Wire.read();
+          Wire.read(); // CRC
+          uint16_t tvoc = (Wire.read() << 8) | Wire.read();
+          Wire.read(); // CRC
+          
+          if (co2 > 0 && co2 < 60000 && tvoc < 60000) {
+            Serial.println("SGP30-compatible device detected at 0x59!");
+            sensorFound = true;
+            useManualReading = true;
+            sensorAddress = 0x59;
+            sensorType = "SGP30";
+            success = true;
+          }
+        }
+      }
+      
+      // If SGP30 failed, try SGP40/41
+      if (!success) {
+        Wire.beginTransmission(0x59);
+        Wire.write(0x26); // Raw signal command for SGP40/41
+        Wire.write(0x0F);
+        error = Wire.endTransmission();
+        
+        if (error == 0) {
+          delay(50);
+          if (Wire.requestFrom((uint8_t)0x59, (uint8_t)3) == 3) {
+            uint16_t raw = (Wire.read() << 8) | Wire.read();
+            Wire.read(); // CRC
+            
+            if (raw > 0 && raw < 60000) {
+              Serial.println("SGP40/41-compatible device detected at 0x59!");
+              sensorFound = true;
+              useManualReading = true;
+              sensorAddress = 0x59;
+              sensorType = "SGP40";
+              success = true;
+            }
+          }
+        }
+      }
+    }
+    
+    if (!sensorFound) {
+      Serial.println("Failed to find any SGP sensor after multiple attempts.");
+      Serial.println("The program will continue but sensor readings will be invalid.");
+    }
   } else {
     // Sensor found, print serial number if using standard library
     if (!useManualReading) {
@@ -277,32 +329,87 @@ void loop() {
   static uint8_t failCount = 0;
   static bool sensorWorking = true;
   static uint32_t printInterval = 0;
+  static bool manualAttemptMade = false;
   
   // Measure every second
   if (millis() - lastMeasurement > 1000) {
     lastMeasurement = millis();
+    
+    // If sensor not working and we haven't tried manual mode yet, try it
+    if (!sensorWorking && !manualAttemptMade && !useManualReading) {
+      Serial.println("Trying manual communication with device at 0x59...");
+      
+      // Try to communicate with the device at 0x59
+      Wire.beginTransmission(0x59);
+      byte error = Wire.endTransmission();
+      
+      if (error == 0) {
+        Serial.println("Device found at 0x59, attempting manual initialization");
+        
+        // Initialize the sensor
+        Wire.beginTransmission(0x59);
+        Wire.write(0x20); // Init air quality command
+        Wire.write(0x03);
+        error = Wire.endTransmission();
+        
+        if (error == 0) {
+          Serial.println("Manual initialization successful!");
+          useManualReading = true;
+          sensorAddress = 0x59;
+          sensorWorking = true;
+          failCount = 0;
+        }
+      }
+      
+      manualAttemptMade = true;
+    }
     
     if (sensorWorking) {
       bool readSuccess = false;
       
       if (useManualReading) {
         // Manual reading for device at alternate address
-        Wire.beginTransmission(sensorAddress);
-        Wire.write(0x20); // Measure air quality command
-        Wire.write(0x08);
-        byte error = Wire.endTransmission();
-        
-        if (error == 0) {
-          delay(50); // Wait for measurement
+        if (sensorType == "SGP40" || sensorType == "SGP41") {
+          // SGP40/41 use different commands
+          Wire.beginTransmission(sensorAddress);
+          Wire.write(0x26); // Measure Raw command
+          Wire.write(0x0F);
+          byte error = Wire.endTransmission();
           
-          // Read measurement data
-          Wire.requestFrom((uint8_t)sensorAddress, (uint8_t)6);
-          if (Wire.available() >= 6) {
-            eCO2 = (Wire.read() << 8) | Wire.read();
-            Wire.read(); // CRC
-            TVOC = (Wire.read() << 8) | Wire.read();
-            Wire.read(); // CRC
-            readSuccess = true;
+          if (error == 0) {
+            delay(50); // Wait for measurement
+            
+            // Read measurement data (raw VOC only)
+            Wire.requestFrom((uint8_t)sensorAddress, (uint8_t)3);
+            if (Wire.available() >= 3) {
+              uint16_t rawVOC = (Wire.read() << 8) | Wire.read();
+              Wire.read(); // CRC
+              
+              // Convert raw reading to approximate TVOC
+              TVOC = rawVOC / 10; // Rough approximation
+              eCO2 = 400 + (TVOC * 3); // Very rough approximation
+              readSuccess = true;
+            }
+          }
+        } else {
+          // Default to SGP30 protocol
+          Wire.beginTransmission(sensorAddress);
+          Wire.write(0x20); // Measure air quality command
+          Wire.write(0x08);
+          byte error = Wire.endTransmission();
+          
+          if (error == 0) {
+            delay(50); // Wait for measurement
+            
+            // Read measurement data
+            Wire.requestFrom((uint8_t)sensorAddress, (uint8_t)6);
+            if (Wire.available() >= 6) {
+              eCO2 = (Wire.read() << 8) | Wire.read();
+              Wire.read(); // CRC
+              TVOC = (Wire.read() << 8) | Wire.read();
+              Wire.read(); // CRC
+              readSuccess = true;
+            }
           }
         }
       } else {
