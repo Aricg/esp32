@@ -16,7 +16,7 @@ const char* password = WIFI_PASSWORD;
 
 // Metrics server configuration
 const char* serverUrl = "http://192.168.88.126:5000/data";
-const unsigned long postInterval = 5000; // Post data every 5 seconds
+const unsigned long postInterval = 10000; // Post data every 10 seconds
 unsigned long lastPostTime = 0;
 
 // Create sensor objects
@@ -424,10 +424,35 @@ void loop() {
               uint16_t rawVOC = (Wire.read() << 8) | Wire.read();
               Wire.read(); // CRC
               
-              // Accept the raw readings as they are
-              TVOC = rawVOC;
-              eCO2 = 400 + (TVOC / 10); // Very rough approximation
+              // Process the raw reading to get a more reasonable VOC index
+              // SGP40 raw values are typically in the 20,000-40,000 range
+              // Convert to a 0-500 scale similar to the library's VOC index
+              int vocIndex;
+              if (rawVOC > 40000) {
+                vocIndex = 500; // Very high VOC
+              } else if (rawVOC < 20000) {
+                vocIndex = 0; // Very low VOC
+              } else {
+                // Map 20000-40000 to 0-500
+                vocIndex = map(rawVOC, 20000, 40000, 0, 500);
+              }
+              
+              TVOC = vocIndex;
+              
+              // Convert VOC index to approximate eCO2
+              if (vocIndex < 100) {
+                eCO2 = 400 + vocIndex; // Minimal CO2 increase for good air
+              } else {
+                eCO2 = 500 + (vocIndex - 100) * 5; // More aggressive scaling for poor air
+              }
+              
               readSuccess = true;
+              
+              // Debug info
+              Serial.print("Raw SGP40: ");
+              Serial.print(rawVOC);
+              Serial.print(", Converted VOC Index: ");
+              Serial.println(vocIndex);
             }
           }
         } else {
@@ -455,13 +480,25 @@ void loop() {
           }
         }
       } else if (useSGP40) {
-        // SGP40 library reading
-        int32_t voc_index = sgp40.measureRaw();
+        // SGP40 library reading - use the VOC algorithm
+        int32_t voc_index = sgp40.measureVOC();
         if (voc_index >= 0) {
-          // SGP40 only provides VOC index, not eCO2
-          TVOC = voc_index;
-          eCO2 = 400 + (voc_index * 3); // Rough approximation
+          // SGP40 provides VOC index (0-500 scale)
+          TVOC = voc_index; // This is already processed by the library
+          
+          // Convert VOC index to approximate eCO2 (very rough estimate)
+          // VOC index of 100 is "normal", higher is worse air quality
+          if (voc_index < 100) {
+            eCO2 = 400 + voc_index; // Minimal CO2 increase for good air
+          } else {
+            eCO2 = 500 + (voc_index - 100) * 5; // More aggressive scaling for poor air
+          }
+          
           readSuccess = true;
+          
+          // Debug info
+          Serial.print("SGP40 VOC Index: ");
+          Serial.println(voc_index);
         }
       } else {
         // SGP30 library reading
@@ -512,8 +549,8 @@ void loop() {
         // Reset fail counter on successful reading
         failCount = 0;
         
-        // Print readings every 2 seconds to reduce serial traffic
-        if (millis() - printInterval > 2000) {
+        // Print readings every 5 seconds to reduce serial traffic
+        if (millis() - printInterval > 5000) {
           printInterval = millis();
           Serial.print("TVOC: "); 
           Serial.print(TVOC); 
