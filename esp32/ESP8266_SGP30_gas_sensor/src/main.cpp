@@ -14,10 +14,13 @@ const char* password = WIFI_PASSWORD;
 // Create SGP30 object
 Adafruit_SGP30 sgp;
 
+// Function prototypes
+void scanI2CBus();
+uint32_t getAbsoluteHumidity(float temperature, float humidity);
+
 // Variables to store sensor readings
 uint16_t TVOC = 0;
 uint16_t eCO2 = 0;
-uint32_t getAbsoluteHumidity(float temperature, float humidity);
 uint32_t lastMeasurement = 0;
 uint32_t lastBaseline = 0;
 uint16_t TVOC_base, eCO2_base;
@@ -81,11 +84,6 @@ void setup() {
     Serial.print(sgp.serialnumber[1], HEX);
     Serial.println(sgp.serialnumber[2], HEX);
   }
-  
-  Serial.print("Found SGP30 serial #");
-  Serial.print(sgp.serialnumber[0], HEX);
-  Serial.print(sgp.serialnumber[1], HEX);
-  Serial.println(sgp.serialnumber[2], HEX);
 
   // Set up initial baseline after 12 hours
   Serial.println("Waiting for sensor to warm up...");
