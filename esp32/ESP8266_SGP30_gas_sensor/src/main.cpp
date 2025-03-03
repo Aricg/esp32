@@ -16,11 +16,13 @@ Adafruit_SGP30 sgp;
 
 // Function prototypes
 void scanI2CBus();
+String detectSensorType(uint8_t address);
 uint32_t getAbsoluteHumidity(float temperature, float humidity);
 
 // Global variables for manual reading
 bool useManualReading = false;
 uint8_t sensorAddress = 0x58; // Default address
+String sensorType = "Unknown"; // Will store detected sensor type: SGP30, SGP40, SGP41, or Unknown
 
 // Variables to store sensor readings
 uint16_t TVOC = 0;
@@ -93,13 +95,18 @@ void setup() {
   delay(100);
   
   // Try direct I2C communication first with both addresses
-  Wire.beginTransmission(0x58); // Standard SGP30 address
+  Wire.beginTransmission(0x58); // Standard SGP address
   byte error = Wire.endTransmission();
   bool foundAt0x58 = (error == 0);
   
   if (foundAt0x58) {
-    Serial.println("Direct I2C communication with SGP30 at 0x58 successful");
+    Serial.println("Direct I2C communication with sensor at 0x58 successful");
     delay(50);
+    
+    // Try to identify which sensor we have
+    sensorType = detectSensorType(0x58);
+    Serial.print("Detected sensor type at 0x58: ");
+    Serial.println(sensorType);
   } else {
     Serial.print("Communication with 0x58 failed with error: ");
     Serial.println(error);
@@ -115,6 +122,11 @@ void setup() {
     Serial.println("Found device at alternate address 0x59");
     Serial.println("Will attempt to use this device instead");
     delay(50);
+    
+    // Try to identify which sensor we have at 0x59
+    sensorType = detectSensorType(0x59);
+    Serial.print("Detected sensor type at 0x59: ");
+    Serial.println(sensorType);
   } else {
     Serial.print("Communication with 0x59 failed with error: ");
     Serial.println(error);
@@ -248,10 +260,13 @@ void setup() {
     Serial.print("Using ");
     if (useManualReading) {
       Serial.print("manual reading at address 0x");
-      Serial.println(sensorAddress, HEX);
+      Serial.print(sensorAddress, HEX);
     } else {
-      Serial.println("Adafruit library at standard address");
+      Serial.print("Adafruit library at standard address");
     }
+    
+    Serial.print(" - Detected sensor type: ");
+    Serial.println(sensorType);
   }
 
   // Set up initial baseline after 12 hours
@@ -431,6 +446,88 @@ void scanI2CBus() {
     Serial.println(" device(s)");
     delay(50);
   }
+}
+
+// Function to detect which SGP sensor we're dealing with
+String detectSensorType(uint8_t address) {
+  byte error;
+  String type = "Unknown";
+  
+  Serial.print("Attempting to identify sensor at address 0x");
+  Serial.println(address, HEX);
+  delay(50);
+  
+  // Try SGP30-specific command (Get Feature Set)
+  Wire.beginTransmission(address);
+  Wire.write(0x20); // Get Feature Set command
+  Wire.write(0x2F);
+  error = Wire.endTransmission();
+  
+  if (error == 0) {
+    delay(10);
+    if (Wire.requestFrom(address, 3) == 3) {
+      byte data[3];
+      for (int i = 0; i < 3; i++) {
+        data[i] = Wire.read();
+      }
+      
+      // SGP30 should return product type 0 in first byte
+      if (data[0] == 0x00) {
+        type = "SGP30";
+        Serial.println("SGP30 identified by feature set response");
+        return type;
+      }
+    }
+  }
+  
+  // Try SGP40-specific command (Measure Raw Signal)
+  Wire.beginTransmission(address);
+  Wire.write(0x26); // Measure Raw Signal command
+  Wire.write(0x0F);
+  error = Wire.endTransmission();
+  
+  if (error == 0) {
+    delay(30); // SGP40 needs time to process
+    if (Wire.requestFrom(address, 3) == 3) {
+      byte data[3];
+      for (int i = 0; i < 3; i++) {
+        data[i] = Wire.read();
+      }
+      
+      // If we got a valid response (not all 0xFF), it's likely an SGP40
+      if (data[0] != 0xFF || data[1] != 0xFF) {
+        type = "SGP40";
+        Serial.println("SGP40 identified by raw signal response");
+        return type;
+      }
+    }
+  }
+  
+  // Try SGP41-specific command (Execute Conditioning)
+  Wire.beginTransmission(address);
+  Wire.write(0x26); // Execute Conditioning command
+  Wire.write(0x12);
+  error = Wire.endTransmission();
+  
+  if (error == 0) {
+    delay(50); // SGP41 needs time to process
+    if (Wire.requestFrom(address, 3) == 3) {
+      byte data[3];
+      for (int i = 0; i < 3; i++) {
+        data[i] = Wire.read();
+      }
+      
+      // If we got a valid response (not all 0xFF), it's likely an SGP41
+      if (data[0] != 0xFF || data[1] != 0xFF) {
+        type = "SGP41";
+        Serial.println("SGP41 identified by conditioning response");
+        return type;
+      }
+    }
+  }
+  
+  Serial.println("Could not identify specific sensor type");
+  return type;
 }
 
 // Function to convert relative humidity to absolute humidity
