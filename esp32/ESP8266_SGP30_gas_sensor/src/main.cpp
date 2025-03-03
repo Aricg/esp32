@@ -18,6 +18,10 @@ Adafruit_SGP30 sgp;
 void scanI2CBus();
 uint32_t getAbsoluteHumidity(float temperature, float humidity);
 
+// Global variables for manual reading
+bool useManualReading = false;
+uint8_t sensorAddress = 0x58; // Default address
+
 // Variables to store sensor readings
 uint16_t TVOC = 0;
 uint16_t eCO2 = 0;
@@ -126,7 +130,7 @@ void setup() {
     
     if (error == 0) {
       delay(10);
-      Wire.requestFrom(0x59, 6);
+      Wire.requestFrom((uint8_t)0x59, (uint8_t)6);
       if (Wire.available() >= 6) {
         Serial.print("Raw data from 0x59: ");
         for (int i = 0; i < 6; i++) {
@@ -254,10 +258,6 @@ void setup() {
   Serial.println("Waiting for sensor to warm up...");
 }
 
-// Global variables for manual reading
-bool useManualReading = false;
-uint8_t sensorAddress = 0x58; // Default address
-
 void loop() {
   static uint8_t failCount = 0;
   static bool sensorWorking = true;
@@ -281,7 +281,7 @@ void loop() {
           delay(50); // Wait for measurement
           
           // Read measurement data
-          Wire.requestFrom(sensorAddress, 6);
+          Wire.requestFrom((uint8_t)sensorAddress, (uint8_t)6);
           if (Wire.available() >= 6) {
             eCO2 = (Wire.read() << 8) | Wire.read();
             Wire.read(); // CRC
