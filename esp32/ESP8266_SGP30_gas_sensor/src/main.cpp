@@ -354,6 +354,28 @@ void loop() {
         
         if (error == 0) {
           Serial.println("Manual initialization successful!");
+          
+          // Try to send a proper initialization sequence
+          delay(100);
+          
+          // For SGP30: Initialize air quality measurements
+          Wire.beginTransmission(0x59);
+          Wire.write(0x20); // Init air quality command
+          Wire.write(0x03);
+          error = Wire.endTransmission();
+          
+          if (error == 0) {
+            Serial.println("Sent init air quality command");
+            
+            // Wait for sensor to initialize (according to datasheet)
+            delay(10);
+            
+            // Try to determine sensor type with a more thorough check
+            sensorType = detectSensorType(0x59);
+            Serial.print("Detected sensor type: ");
+            Serial.println(sensorType);
+          }
+          
           useManualReading = true;
           sensorAddress = 0x59;
           sensorWorking = true;
@@ -386,8 +408,15 @@ void loop() {
               Wire.read(); // CRC
               
               // Convert raw reading to approximate TVOC
-              TVOC = rawVOC / 10; // Rough approximation
-              eCO2 = 400 + (TVOC * 3); // Very rough approximation
+              // Check for invalid readings (65535 is often an error code)
+              if (rawVOC == 0xFFFF) {
+                TVOC = 0; // Mark as invalid
+                eCO2 = 400; // Default CO2 level
+                Serial.println("Warning: Invalid raw VOC reading (0xFFFF)");
+              } else {
+                TVOC = rawVOC / 10; // Rough approximation
+                eCO2 = 400 + (TVOC * 3); // Very rough approximation
+              }
               readSuccess = true;
             }
           }
@@ -408,6 +437,25 @@ void loop() {
               Wire.read(); // CRC
               TVOC = (Wire.read() << 8) | Wire.read();
               Wire.read(); // CRC
+              
+              // Check for invalid readings
+              if (TVOC == 0xFFFF || eCO2 == 0xFFFF) {
+                Serial.println("Warning: Invalid readings detected (0xFFFF)");
+                // If eCO2 is invalid but TVOC is valid
+                if (eCO2 == 0xFFFF && TVOC != 0xFFFF) {
+                  eCO2 = 400 + (TVOC * 3); // Estimate from TVOC
+                }
+                // If TVOC is invalid but eCO2 is valid
+                if (TVOC == 0xFFFF && eCO2 != 0xFFFF) {
+                  TVOC = (eCO2 - 400) / 3; // Estimate from eCO2
+                }
+                // If both are invalid, set defaults
+                if (TVOC == 0xFFFF && eCO2 == 0xFFFF) {
+                  TVOC = 0;
+                  eCO2 = 400;
+                }
+              }
+              
               readSuccess = true;
             }
           }
@@ -492,18 +540,46 @@ void loop() {
     // sgp.setHumidity(getAbsoluteHumidity(temperature, humidity));
   }
   
-  // Store baseline readings every hour
+  // Store baseline readings and perform periodic maintenance every hour
   if (millis() - lastBaseline > 3600000) {
     lastBaseline = millis();
     
-    if (sgp.getIAQBaseline(&eCO2_base, &TVOC_base)) {
-      Serial.print("Baseline values: eCO2: 0x");
-      Serial.print(eCO2_base, HEX);
-      Serial.print(", TVOC: 0x");
-      Serial.println(TVOC_base, HEX);
-      baselineValid = true;
-    } else {
-      Serial.println("Failed to get baseline readings");
+    // For standard library
+    if (!useManualReading) {
+      if (sgp.getIAQBaseline(&eCO2_base, &TVOC_base)) {
+        Serial.print("Baseline values: eCO2: 0x");
+        Serial.print(eCO2_base, HEX);
+        Serial.print(", TVOC: 0x");
+        Serial.println(TVOC_base, HEX);
+        baselineValid = true;
+      } else {
+        Serial.println("Failed to get baseline readings");
+      }
+    } 
+    // For manual reading mode
+    else {
+      Serial.println("Performing periodic soft reset of sensor");
+      
+      // Send soft reset command
+      Wire.beginTransmission(sensorAddress);
+      Wire.write(0x00); // General call address
+      Wire.write(0x06); // Reset command
+      byte error = Wire.endTransmission();
+      
+      if (error == 0) {
+        Serial.println("Soft reset sent successfully");
+        delay(100); // Wait for reset
+        
+        // Reinitialize the sensor
+        Wire.beginTransmission(sensorAddress);
+        Wire.write(0x20); // Init air quality command
+        Wire.write(0x03);
+        error = Wire.endTransmission();
+        
+        if (error == 0) {
+          Serial.println("Reinitialized after reset");
+        }
+      }
     }
   }
   
