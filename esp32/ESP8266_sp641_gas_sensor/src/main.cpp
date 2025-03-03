@@ -27,7 +27,7 @@ const uint16_t CONDITIONING_DURATION_S = 10;
 // SGP40 I2C address (default is 0x59)
 // We'll try 0x62 as well since that was found in the scan
 const uint8_t SGP40_I2C_ADDRESS = 0x59;
-const uint8_t ALTERNATIVE_I2C_ADDRESS = 0x62;
+uint8_t alternativeI2CAddress = 0x62;
 bool useAlternativeAddress = false;
 
 // I2C pins
@@ -177,7 +177,7 @@ bool testSGP40Commands(uint8_t address) {
   
   delay(10);
   
-  if (Wire.requestFrom(address, 9) != 9) {
+  if (Wire.requestFrom((int)address, (int)9) != 9) {
     return false;
   }
   
@@ -241,7 +241,7 @@ bool tryDifferentI2COptions() {
           Serial.println("Will try to use this address instead.");
           
           // Update the alternative address
-          ALTERNATIVE_I2C_ADDRESS = possibleAddresses[j];
+          alternativeI2CAddress = possibleAddresses[j];
           useAlternativeAddress = true;
         }
         
@@ -400,7 +400,7 @@ bool initSGP40() {
   }
   
   // Check if there's a device at address 0x62 (which was found in your scan)
-  Wire.beginTransmission(ALTERNATIVE_I2C_ADDRESS);
+  Wire.beginTransmission(alternativeI2CAddress);
   if (Wire.endTransmission() == 0) {
     Serial.println("Found device at address 0x62 - this might be your sensor with a non-standard address");
     Serial.println("Let's try to use this device directly...");
@@ -410,7 +410,7 @@ bool initSGP40() {
     
     // We'll use direct I2C communication for this address since the library 
     // doesn't support changing the address
-    Wire.beginTransmission(ALTERNATIVE_I2C_ADDRESS);
+    Wire.beginTransmission(alternativeI2CAddress);
     Wire.write(0x20); // SGP40 measure command
     Wire.write(0x08);
     Wire.write(0x00); // Default humidity
@@ -425,7 +425,7 @@ bool initSGP40() {
       delay(30); // Wait for measurement
       
       // Read response
-      if (Wire.requestFrom(ALTERNATIVE_I2C_ADDRESS, 3) == 3) {
+      if (Wire.requestFrom((int)alternativeI2CAddress, (int)3) == 3) {
         uint16_t rawValue = 0;
         uint8_t data[3];
         
@@ -637,7 +637,7 @@ void loop() {
       // Measure VOC raw signal
       if (useAlternativeAddress) {
         // Use direct I2C communication for the alternative address
-        Wire.beginTransmission(ALTERNATIVE_I2C_ADDRESS);
+        Wire.beginTransmission(alternativeI2CAddress);
         Wire.write(0x20); // SGP40 measure command
         Wire.write(0x08);
         Wire.write(0x00); // Default humidity
@@ -653,7 +653,7 @@ void loop() {
           delay(30); // Wait for measurement
           
           // Read response
-          if (Wire.requestFrom(ALTERNATIVE_I2C_ADDRESS, 3) == 3) {
+          if (Wire.requestFrom((int)alternativeI2CAddress, (int)3) == 3) {
             uint8_t data[3];
             for (int i = 0; i < 3; i++) {
               data[i] = Wire.read();
@@ -715,7 +715,7 @@ void loop() {
         Serial.print("Raw value in hex: 0x");
         Serial.println(srawVoc, HEX);
         Serial.print("Using address: 0x");
-        Serial.println(useAlternativeAddress ? ALTERNATIVE_I2C_ADDRESS : SGP40_I2C_ADDRESS, HEX);
+        Serial.println(useAlternativeAddress ? alternativeI2CAddress : SGP40_I2C_ADDRESS, HEX);
         
         // VOC Index interpretation
         Serial.print("Air Quality: ");
