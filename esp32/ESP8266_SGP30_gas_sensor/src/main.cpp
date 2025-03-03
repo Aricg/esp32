@@ -29,11 +29,16 @@ bool baselineValid = false;
 void setup() {
   // Initialize serial communication
   Serial.begin(9600);
-  delay(100); // Give serial port time to initialize
+  delay(1000); // Give serial port time to initialize
   Serial.println("\n\n--- SGP30 Gas Sensor Test ---");
 
+  // Wait for sensor to power up fully
+  delay(2000);
+  Serial.println("Initializing I2C...");
+  
   // Initialize I2C with custom pins
   Wire.begin(SDA_PIN, SCL_PIN);
+  delay(500); // Give I2C time to initialize
   
   // Scan I2C bus to see what devices are connected
   scanI2CBus();
@@ -64,6 +69,25 @@ void setup() {
   Serial.println(SCL_PIN);
   delay(50);
   
+  // Try to reset I2C bus if needed
+  Serial.println("Attempting I2C reset...");
+  pinMode(SDA_PIN, OUTPUT);
+  pinMode(SCL_PIN, OUTPUT);
+  
+  // Toggle SCL to release SDA if stuck
+  digitalWrite(SCL_PIN, HIGH);
+  delay(100);
+  for(int i = 0; i < 10; i++) {
+    digitalWrite(SCL_PIN, LOW);
+    delay(10);
+    digitalWrite(SCL_PIN, HIGH);
+    delay(10);
+  }
+  
+  // Re-initialize I2C
+  Wire.begin(SDA_PIN, SCL_PIN);
+  delay(100);
+  
   // Try direct I2C communication first
   Wire.beginTransmission(0x58); // SGP30 address
   byte error = Wire.endTransmission();
@@ -75,6 +99,14 @@ void setup() {
     Serial.print("Direct I2C communication failed with error: ");
     Serial.println(error);
     delay(50);
+    
+    // Try alternate address
+    Wire.beginTransmission(0x59);
+    error = Wire.endTransmission();
+    if (error == 0) {
+      Serial.println("Found device at alternate address 0x59");
+      delay(50);
+    }
   }
   
   // Now try the Adafruit library initialization with multiple attempts
