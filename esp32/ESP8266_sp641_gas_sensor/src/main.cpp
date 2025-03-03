@@ -34,6 +34,10 @@ bool useAlternativeAddress = false;
 const uint8_t SDA_PIN = 4; // D2 on NodeMCU
 const uint8_t SCL_PIN = 5; // D1 on NodeMCU
 
+// I2C configuration
+const uint32_t I2C_FREQUENCY = 10000; // Use a very low frequency (10kHz) for reliability
+const uint32_t I2C_STRETCH_LIMIT = 200000; // Longer clock stretching limit
+
 // Flag to track if sensor is connected
 bool sensorConnected = false;
 
@@ -66,15 +70,43 @@ uint16_t srawVoc = 0;
 // Function to scan I2C bus for devices
 void scanI2CBus() {
   Serial.println("\n=== Scanning I2C bus ===");
+  Serial.print("Using SDA pin: D");
+  Serial.print(SDA_PIN == 4 ? "2" : String(SDA_PIN));
+  Serial.print(" (GPIO");
+  Serial.print(SDA_PIN);
+  Serial.print("), SCL pin: D");
+  Serial.print(SCL_PIN == 5 ? "1" : String(SCL_PIN));
+  Serial.print(" (GPIO");
+  Serial.print(SCL_PIN);
+  Serial.println(")");
+  Serial.print("I2C Frequency: ");
+  Serial.print(I2C_FREQUENCY / 1000.0);
+  Serial.println(" kHz");
+  
   byte error, address;
   int deviceCount = 0;
   bool sgp40Found = false;
   
+  // Re-initialize I2C with current settings
+  Wire.begin(SDA_PIN, SCL_PIN);
+  Wire.setClock(I2C_FREQUENCY);
+  Wire.setClockStretchLimit(I2C_STRETCH_LIMIT);
+  delay(100);
+  
   for(address = 1; address < 127; address++) {
-    Wire.beginTransmission(address);
-    error = Wire.endTransmission();
+    // Try multiple times for reliability
+    bool deviceFound = false;
+    for (int attempt = 0; attempt < 3; attempt++) {
+      Wire.beginTransmission(address);
+      error = Wire.endTransmission();
+      if (error == 0) {
+        deviceFound = true;
+        break;
+      }
+      delay(10);
+    }
     
-    if (error == 0) {
+    if (deviceFound) {
       Serial.print("I2C device found at address 0x");
       if (address < 16) {
         Serial.print("0");
@@ -114,6 +146,7 @@ void scanI2CBus() {
   if (deviceCount == 0) {
     Serial.println("No I2C devices found!");
     Serial.println("Check your wiring and pull-up resistors.");
+    Serial.println("Try adding 4.7k pull-up resistors from SDA/SCL to 3.3V.");
   } else {
     Serial.print("Found ");
     Serial.print(deviceCount);
@@ -126,6 +159,7 @@ void scanI2CBus() {
       Serial.println("2. Missing pull-up resistors (2.2k-10k ohm to 3.3V)");
       Serial.println("3. Sensor power issue (needs 3.3V)");
       Serial.println("4. Sensor may be damaged");
+      Serial.println("5. Sensor might be using a different I2C address");
     }
   }
   Serial.println("=========================");
@@ -157,9 +191,9 @@ bool testSGP40Commands(uint8_t address) {
 
 // Function to try different I2C speeds and addresses
 bool tryDifferentI2COptions() {
-  const uint32_t speeds[] = {10000, 50000, 100000, 400000};
-  const char* speedNames[] = {"10kHz", "50kHz", "100kHz", "400kHz"};
-  const uint8_t possibleAddresses[] = {0x58, 0x59, 0x62}; // Try common Sensirion addresses
+  const uint32_t speeds[] = {10000, 20000, 50000, 100000};
+  const char* speedNames[] = {"10kHz", "20kHz", "50kHz", "100kHz"};
+  const uint8_t possibleAddresses[] = {0x58, 0x59, 0x62, 0x61, 0x60}; // Try common Sensirion addresses
   
   for (int i = 0; i < 4; i++) {
     Serial.print("Trying I2C at ");
@@ -168,24 +202,47 @@ bool tryDifferentI2COptions() {
     
     Wire.begin(SDA_PIN, SCL_PIN);
     Wire.setClock(speeds[i]);
-    Wire.setClockStretchLimit(200000);
+    Wire.setClockStretchLimit(I2C_STRETCH_LIMIT);
     delay(100);
     
     // Check all possible addresses
-    for (int j = 0; j < 3; j++) {
-      Wire.beginTransmission(possibleAddresses[j]);
-      byte error = Wire.endTransmission();
+    for (int j = 0; j < 5; j++) {
+      // Try multiple times for reliability
+      bool deviceFound = false;
+      for (int attempt = 0; attempt < 3; attempt++) {
+        Wire.beginTransmission(possibleAddresses[j]);
+        byte error = Wire.endTransmission();
+        
+        if (error == 0) {
+          deviceFound = true;
+          break;
+        }
+        delay(10);
+      }
       
-      if (error == 0) {
+      if (deviceFound) {
         Serial.print("Device found at address 0x");
         Serial.print(possibleAddresses[j], HEX);
         Serial.print(" with speed ");
         Serial.print(speedNames[i]);
         Serial.println("!");
         
+        // Try to read from this device to confirm it's responsive
+        Wire.beginTransmission(possibleAddresses[j]);
+        Wire.write(0x36); // Common Sensirion command
+        byte error = Wire.endTransmission();
+        
+        if (error == 0) {
+          Serial.println("Device responds to Sensirion commands!");
+        }
+        
         if (possibleAddresses[j] != SGP40_I2C_ADDRESS) {
           Serial.println("NOTE: This is not the standard SGP40 address (0x59).");
-          Serial.println("You may need to modify the code to use this address.");
+          Serial.println("Will try to use this address instead.");
+          
+          // Update the alternative address
+          ALTERNATIVE_I2C_ADDRESS = possibleAddresses[j];
+          useAlternativeAddress = true;
         }
         
         return true;
@@ -203,30 +260,111 @@ bool tryDifferentI2COptions() {
 void resetI2CBus() {
   Serial.println("Resetting I2C bus...");
   
+  // Release I2C pins
+  pinMode(SDA_PIN, INPUT);
+  pinMode(SCL_PIN, INPUT);
+  delay(50);
+  
   // Toggle SDA line to unstick any stuck devices
   pinMode(SDA_PIN, OUTPUT);
   for (int i = 0; i < 16; i++) {
     digitalWrite(SDA_PIN, HIGH);
-    delayMicroseconds(5);
+    delayMicroseconds(10);
     digitalWrite(SDA_PIN, LOW);
-    delayMicroseconds(5);
+    delayMicroseconds(10);
   }
   
   // Send final STOP condition
   pinMode(SDA_PIN, INPUT_PULLUP);
   pinMode(SCL_PIN, OUTPUT);
   digitalWrite(SCL_PIN, HIGH);
-  delayMicroseconds(5);
+  delayMicroseconds(10);
   pinMode(SCL_PIN, INPUT_PULLUP);
   
   delay(100);
   
   // Re-initialize I2C
   Wire.begin(SDA_PIN, SCL_PIN);
-  Wire.setClock(100000);
-  Wire.setClockStretchLimit(200000);
+  Wire.setClock(I2C_FREQUENCY);
+  Wire.setClockStretchLimit(I2C_STRETCH_LIMIT);
   
   delay(100);
+  
+  Serial.println("I2C bus reset complete");
+}
+
+// Function to test I2C pins
+void testI2CPins() {
+  Serial.println("\n=== Testing I2C Pins ===");
+  
+  // Test SDA pin
+  pinMode(SDA_PIN, INPUT_PULLUP);
+  delay(10);
+  bool sdaHigh = digitalRead(SDA_PIN);
+  
+  pinMode(SDA_PIN, OUTPUT);
+  digitalWrite(SDA_PIN, LOW);
+  delay(10);
+  bool sdaCanGoLow = (digitalRead(SDA_PIN) == LOW);
+  
+  digitalWrite(SDA_PIN, HIGH);
+  delay(10);
+  bool sdaCanGoHigh = (digitalRead(SDA_PIN) == HIGH);
+  
+  pinMode(SDA_PIN, INPUT_PULLUP);
+  delay(10);
+  bool sdaPullup = digitalRead(SDA_PIN);
+  
+  // Test SCL pin
+  pinMode(SCL_PIN, INPUT_PULLUP);
+  delay(10);
+  bool sclHigh = digitalRead(SCL_PIN);
+  
+  pinMode(SCL_PIN, OUTPUT);
+  digitalWrite(SCL_PIN, LOW);
+  delay(10);
+  bool sclCanGoLow = (digitalRead(SCL_PIN) == LOW);
+  
+  digitalWrite(SCL_PIN, HIGH);
+  delay(10);
+  bool sclCanGoHigh = (digitalRead(SCL_PIN) == HIGH);
+  
+  pinMode(SCL_PIN, INPUT_PULLUP);
+  delay(10);
+  bool sclPullup = digitalRead(SCL_PIN);
+  
+  // Report results
+  Serial.println("SDA Pin (D2/GPIO4) Test:");
+  Serial.print("  Initial state (should be HIGH): ");
+  Serial.println(sdaHigh ? "HIGH ✓" : "LOW ✗");
+  Serial.print("  Can drive LOW: ");
+  Serial.println(sdaCanGoLow ? "YES ✓" : "NO ✗");
+  Serial.print("  Can drive HIGH: ");
+  Serial.println(sdaCanGoHigh ? "YES ✓" : "NO ✗");
+  Serial.print("  Pull-up working: ");
+  Serial.println(sdaPullup ? "YES ✓" : "NO ✗");
+  
+  Serial.println("SCL Pin (D1/GPIO5) Test:");
+  Serial.print("  Initial state (should be HIGH): ");
+  Serial.println(sclHigh ? "HIGH ✓" : "LOW ✗");
+  Serial.print("  Can drive LOW: ");
+  Serial.println(sclCanGoLow ? "YES ✓" : "NO ✗");
+  Serial.print("  Can drive HIGH: ");
+  Serial.println(sclCanGoHigh ? "YES ✓" : "NO ✗");
+  Serial.print("  Pull-up working: ");
+  Serial.println(sclPullup ? "YES ✓" : "NO ✗");
+  
+  if (!sdaPullup || !sclPullup) {
+    Serial.println("\n⚠️ WARNING: Pull-up resistors may be missing!");
+    Serial.println("Add 4.7kΩ resistors from SDA/SCL to 3.3V");
+  }
+  
+  Serial.println("=========================");
+  
+  // Reset pins to I2C mode
+  Wire.begin(SDA_PIN, SCL_PIN);
+  Wire.setClock(I2C_FREQUENCY);
+  Wire.setClockStretchLimit(I2C_STRETCH_LIMIT);
 }
 
 // Function to initialize the SGP40 sensor
@@ -238,8 +376,14 @@ bool initSGP40() {
   
   // Initialize I2C bus for SGP40 sensor with clock stretching support
   Wire.begin(SDA_PIN, SCL_PIN);
-  Wire.setClock(100000); // Set to standard 100kHz
-  Wire.setClockStretchLimit(200000); // Increase clock stretching limit
+  Wire.setClock(I2C_FREQUENCY); // Use a very low frequency for reliability
+  Wire.setClockStretchLimit(I2C_STRETCH_LIMIT);
+  
+  // Print pin configuration
+  Serial.println("I2C Configuration:");
+  Serial.print("SDA: D2 (GPIO4), SCL: D1 (GPIO5), Frequency: ");
+  Serial.print(I2C_FREQUENCY / 1000.0);
+  Serial.println(" kHz");
   
   // Scan for I2C devices
   scanI2CBus();
@@ -424,6 +568,9 @@ void setup() {
     return;
   }
 
+  // Test I2C pins first
+  testI2CPins();
+  
   // Initialize SGP40 sensor
   Serial.println("Initializing SGP40 sensor...");
   sensorConnected = initSGP40();
