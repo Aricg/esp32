@@ -88,43 +88,143 @@ void setup() {
   Wire.begin(SDA_PIN, SCL_PIN);
   delay(100);
   
-  // Try direct I2C communication first
-  Wire.beginTransmission(0x58); // SGP30 address
+  // Try direct I2C communication first with both addresses
+  Wire.beginTransmission(0x58); // Standard SGP30 address
   byte error = Wire.endTransmission();
+  bool foundAt0x58 = (error == 0);
   
-  if (error == 0) {
-    Serial.println("Direct I2C communication with SGP30 successful");
+  if (foundAt0x58) {
+    Serial.println("Direct I2C communication with SGP30 at 0x58 successful");
     delay(50);
   } else {
-    Serial.print("Direct I2C communication failed with error: ");
+    Serial.print("Communication with 0x58 failed with error: ");
     Serial.println(error);
     delay(50);
-    
-    // Try alternate address
+  }
+  
+  // Try alternate address
+  Wire.beginTransmission(0x59);
+  error = Wire.endTransmission();
+  bool foundAt0x59 = (error == 0);
+  
+  if (foundAt0x59) {
+    Serial.println("Found device at alternate address 0x59");
+    Serial.println("Will attempt to use this device instead");
+    delay(50);
+  } else {
+    Serial.print("Communication with 0x59 failed with error: ");
+    Serial.println(error);
+    delay(50);
+  }
+  
+  // Try to read some data from the device at 0x59
+  if (foundAt0x59) {
     Wire.beginTransmission(0x59);
+    Wire.write(0x20); // Command to read serial ID
+    Wire.write(0x03);
     error = Wire.endTransmission();
+    
     if (error == 0) {
-      Serial.println("Found device at alternate address 0x59");
-      delay(50);
+      delay(10);
+      Wire.requestFrom(0x59, 6);
+      if (Wire.available() >= 6) {
+        Serial.print("Raw data from 0x59: ");
+        for (int i = 0; i < 6; i++) {
+          byte data = Wire.read();
+          Serial.print("0x");
+          if (data < 16) Serial.print("0");
+          Serial.print(data, HEX);
+          Serial.print(" ");
+        }
+        Serial.println();
+      } else {
+        Serial.println("Not enough data received from 0x59");
+      }
+    } else {
+      Serial.println("Failed to send command to 0x59");
     }
   }
   
   // Now try the Adafruit library initialization with multiple attempts
   bool sensorFound = false;
-  for (int attempt = 1; attempt <= 3 && !sensorFound; attempt++) {
+  
+  // First try with standard library
+  for (int attempt = 1; attempt <= 2 && !sensorFound; attempt++) {
     Serial.print("SGP30 init attempt ");
     Serial.print(attempt);
-    Serial.println("/3");
+    Serial.println("/2 (standard address)");
     delay(50);
     
     sensorFound = sgp.begin();
     
     if (sensorFound) {
-      Serial.println("SGP30 sensor initialized successfully!");
+      Serial.println("SGP30 sensor initialized successfully at 0x58!");
       delay(50);
     } else {
-      Serial.println("SGP30 init failed, retrying...");
-      delay(1000);
+      Serial.println("SGP30 init failed at standard address");
+      delay(500);
+    }
+  }
+  
+  // If not found, try manual initialization for device at 0x59
+  if (!sensorFound && foundAt0x59) {
+    Serial.println("Attempting manual initialization for device at 0x59");
+    delay(50);
+    
+    // Try to initialize the sensor with a custom I2C address
+    // This is a workaround since the Adafruit library doesn't support changing the address
+    
+    // First, send init command to 0x59
+    Wire.beginTransmission(0x59);
+    Wire.write(0x20); // Init air quality command
+    Wire.write(0x03);
+    error = Wire.endTransmission();
+    
+    if (error == 0) {
+      Serial.println("Sent init command to device at 0x59");
+      delay(10);
+      
+      // Wait for sensor initialization (10ms according to datasheet)
+      delay(10);
+      
+      // Try to read from the device to confirm it's working
+      Wire.beginTransmission(0x59);
+      Wire.write(0x20); // Measure air quality command
+      Wire.write(0x08);
+      error = Wire.endTransmission();
+      
+      if (error == 0) {
+        delay(50); // Wait for measurement
+        
+        // Read measurement data
+        Wire.requestFrom(0x59, 6);
+        if (Wire.available() >= 6) {
+          uint16_t co2 = (Wire.read() << 8) | Wire.read();
+          Wire.read(); // CRC
+          uint16_t tvoc = (Wire.read() << 8) | Wire.read();
+          Wire.read(); // CRC
+          
+          Serial.println("Manual reading from device at 0x59:");
+          Serial.print("CO2: "); Serial.print(co2); Serial.println(" ppm");
+          Serial.print("TVOC: "); Serial.print(tvoc); Serial.println(" ppb");
+          
+          // If we got reasonable values, consider the sensor found
+          if (co2 > 0 && co2 < 60000 && tvoc < 60000) {
+            sensorFound = true;
+            useManualReading = true;
+            sensorAddress = 0x59;
+            Serial.println("Manual initialization successful!");
+          } else {
+            Serial.println("Received invalid values from device");
+          }
+        } else {
+          Serial.println("Not enough data received from device");
+        }
+      } else {
+        Serial.println("Failed to send measure command");
+      }
+    } else {
+      Serial.println("Failed to send init command");
     }
   }
   
@@ -132,16 +232,31 @@ void setup() {
     Serial.println("Failed to find SGP30 sensor after multiple attempts.");
     Serial.println("The program will continue but sensor readings will be invalid.");
   } else {
-    // Sensor found, print serial number
-    Serial.print("Found SGP30 serial #");
-    Serial.print(sgp.serialnumber[0], HEX);
-    Serial.print(sgp.serialnumber[1], HEX);
-    Serial.println(sgp.serialnumber[2], HEX);
+    // Sensor found, print serial number if using standard library
+    if (!useManualReading) {
+      Serial.print("Found SGP30 serial #");
+      Serial.print(sgp.serialnumber[0], HEX);
+      Serial.print(sgp.serialnumber[1], HEX);
+      Serial.println(sgp.serialnumber[2], HEX);
+    }
+    
+    // Print which mode we're using
+    Serial.print("Using ");
+    if (useManualReading) {
+      Serial.print("manual reading at address 0x");
+      Serial.println(sensorAddress, HEX);
+    } else {
+      Serial.println("Adafruit library at standard address");
+    }
   }
 
   // Set up initial baseline after 12 hours
   Serial.println("Waiting for sensor to warm up...");
 }
+
+// Global variables for manual reading
+bool useManualReading = false;
+uint8_t sensorAddress = 0x58; // Default address
 
 void loop() {
   static uint8_t failCount = 0;
@@ -153,8 +268,38 @@ void loop() {
     lastMeasurement = millis();
     
     if (sensorWorking) {
-      // Measure TVOC and eCO2
-      if (!sgp.IAQmeasure()) {
+      bool readSuccess = false;
+      
+      if (useManualReading) {
+        // Manual reading for device at alternate address
+        Wire.beginTransmission(sensorAddress);
+        Wire.write(0x20); // Measure air quality command
+        Wire.write(0x08);
+        byte error = Wire.endTransmission();
+        
+        if (error == 0) {
+          delay(50); // Wait for measurement
+          
+          // Read measurement data
+          Wire.requestFrom(sensorAddress, 6);
+          if (Wire.available() >= 6) {
+            eCO2 = (Wire.read() << 8) | Wire.read();
+            Wire.read(); // CRC
+            TVOC = (Wire.read() << 8) | Wire.read();
+            Wire.read(); // CRC
+            readSuccess = true;
+          }
+        }
+      } else {
+        // Standard library reading
+        readSuccess = sgp.IAQmeasure();
+        if (readSuccess) {
+          TVOC = sgp.TVOC;
+          eCO2 = sgp.eCO2;
+        }
+      }
+      
+      if (!readSuccess) {
         failCount++;
         
         // Only print every 5 seconds to reduce serial traffic
@@ -170,7 +315,18 @@ void loop() {
         if (failCount >= 5) {
           Serial.println("Reinitializing sensor...");
           delay(10);
-          sensorWorking = sgp.begin();
+          
+          if (useManualReading) {
+            // Try to reinitialize manually
+            Wire.beginTransmission(sensorAddress);
+            Wire.write(0x20); // Init air quality command
+            Wire.write(0x03);
+            byte error = Wire.endTransmission();
+            sensorWorking = (error == 0);
+          } else {
+            sensorWorking = sgp.begin();
+          }
+          
           if (sensorWorking) {
             Serial.println("Sensor reinitialized OK");
             delay(10);
@@ -180,10 +336,6 @@ void loop() {
       } else {
         // Reset fail counter on successful reading
         failCount = 0;
-        
-        // Read sensor values
-        TVOC = sgp.TVOC;
-        eCO2 = sgp.eCO2;
         
         // Print readings every 2 seconds to reduce serial traffic
         if (millis() - printInterval > 2000) {
