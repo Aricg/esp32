@@ -26,6 +26,7 @@ Adafruit_SGP40 sgp40;
 // Function prototypes
 void scanI2CBus();
 String detectSensorType(uint8_t address);
+void sendSensorData(const char* sensorName, int sensorValue);
 uint32_t getAbsoluteHumidity(float temperature, float humidity);
 
 // Global variables for sensor control
@@ -655,7 +656,7 @@ String detectSensorType(uint8_t address) {
   
   if (error == 0) {
     delay(10);
-    if (Wire.requestFrom(address, 3) == 3) {
+    if (Wire.requestFrom((uint8_t)address, (uint8_t)3) == 3) {
       byte data[3];
       for (int i = 0; i < 3; i++) {
         data[i] = Wire.read();
@@ -678,7 +679,7 @@ String detectSensorType(uint8_t address) {
   
   if (error == 0) {
     delay(30); // SGP40 needs time to process
-    if (Wire.requestFrom(address, 3) == 3) {
+    if (Wire.requestFrom((uint8_t)address, (uint8_t)3) == 3) {
       byte data[3];
       for (int i = 0; i < 3; i++) {
         data[i] = Wire.read();
@@ -701,7 +702,7 @@ String detectSensorType(uint8_t address) {
   
   if (error == 0) {
     delay(50); // SGP41 needs time to process
-    if (Wire.requestFrom(address, 3) == 3) {
+    if (Wire.requestFrom((uint8_t)address, (uint8_t)3) == 3) {
       byte data[3];
       for (int i = 0; i < 3; i++) {
         data[i] = Wire.read();
