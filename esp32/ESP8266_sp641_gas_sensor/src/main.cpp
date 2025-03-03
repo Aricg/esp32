@@ -24,15 +24,26 @@ VOCGasIndexAlgorithm vocAlgorithm;
 // Conditioning duration in seconds
 const uint16_t CONDITIONING_DURATION_S = 10;
 
+// SGP40 I2C address (default is 0x59)
+const uint8_t SGP40_I2C_ADDRESS = 0x59;
+
+// I2C pins
+const uint8_t SDA_PIN = 4; // D2 on NodeMCU
+const uint8_t SCL_PIN = 5; // D1 on NodeMCU
+
+// Flag to track if sensor is connected
+bool sensorConnected = false;
+
 // Variables to store sensor readings
 int32_t vocIndex = 0;
 uint16_t srawVoc = 0;
 
 // Function to scan I2C bus for devices
 void scanI2CBus() {
-  Serial.println("Scanning I2C bus...");
+  Serial.println("\n=== Scanning I2C bus ===");
   byte error, address;
   int deviceCount = 0;
+  bool sgp40Found = false;
   
   for(address = 1; address < 127; address++) {
     Wire.beginTransmission(address);
@@ -48,11 +59,15 @@ void scanI2CBus() {
       
       // Print known device names
       switch(address) {
-        case 0x58: // SGP40 default address
-          Serial.print("SGP40 sensor");
+        case 0x58: // Some SGP40 might use this address
+          Serial.print("Possible SGP40 sensor");
           break;
-        case 0x59: // SGP41 default address
-          Serial.print("SGP41 sensor");
+        case 0x59: // SGP40/41 default address
+          Serial.print("SGP40/41 sensor");
+          sgp40Found = true;
+          break;
+        case 0x62: // SP30 or other Sensirion sensor
+          Serial.print("Sensirion SP30 or other sensor");
           break;
         default:
           Serial.print("unknown device");
@@ -78,27 +93,114 @@ void scanI2CBus() {
     Serial.print("Found ");
     Serial.print(deviceCount);
     Serial.println(" device(s).");
+    
+    if (!sgp40Found) {
+      Serial.println("WARNING: SGP40 sensor (0x59) not found!");
+      Serial.println("Possible issues:");
+      Serial.println("1. Incorrect wiring (check SDA/SCL connections)");
+      Serial.println("2. Missing pull-up resistors (2.2k-10k ohm to 3.3V)");
+      Serial.println("3. Sensor power issue (needs 3.3V)");
+      Serial.println("4. Sensor may be damaged");
+    }
   }
+  Serial.println("=========================");
+}
+
+// Function to try different I2C speeds
+bool tryDifferentI2CSpeeds() {
+  const uint32_t speeds[] = {10000, 50000, 100000, 400000};
+  const char* speedNames[] = {"10kHz", "50kHz", "100kHz", "400kHz"};
+  
+  for (int i = 0; i < 4; i++) {
+    Serial.print("Trying I2C at ");
+    Serial.print(speedNames[i]);
+    Serial.println("...");
+    
+    Wire.begin(SDA_PIN, SCL_PIN);
+    Wire.setClock(speeds[i]);
+    Wire.setClockStretchLimit(200000);
+    delay(100);
+    
+    // Check if SGP40 is responding
+    Wire.beginTransmission(SGP40_I2C_ADDRESS);
+    byte error = Wire.endTransmission();
+    
+    if (error == 0) {
+      Serial.print("Success at ");
+      Serial.print(speedNames[i]);
+      Serial.println("!");
+      return true;
+    }
+    
+    delay(100);
+  }
+  
+  Serial.println("Failed at all I2C speeds");
+  return false;
+}
+
+// Function to reset I2C bus
+void resetI2CBus() {
+  Serial.println("Resetting I2C bus...");
+  
+  // Release I2C bus
+  Wire.end();
+  delay(100);
+  
+  // Toggle SDA line to unstick any stuck devices
+  pinMode(SDA_PIN, OUTPUT);
+  for (int i = 0; i < 16; i++) {
+    digitalWrite(SDA_PIN, HIGH);
+    delayMicroseconds(5);
+    digitalWrite(SDA_PIN, LOW);
+    delayMicroseconds(5);
+  }
+  
+  // Send final STOP condition
+  pinMode(SDA_PIN, INPUT_PULLUP);
+  pinMode(SCL_PIN, OUTPUT);
+  digitalWrite(SCL_PIN, HIGH);
+  delayMicroseconds(5);
+  pinMode(SCL_PIN, INPUT_PULLUP);
+  
+  delay(100);
+  
+  // Re-initialize I2C
+  Wire.begin(SDA_PIN, SCL_PIN);
+  Wire.setClock(100000);
+  Wire.setClockStretchLimit(200000);
+  
+  delay(100);
 }
 
 // Function to initialize the SGP40 sensor
-void initSGP40() {
+bool initSGP40() {
   uint16_t error;
   char errorMessage[256];
   
+  Serial.println("\n=== Initializing SGP40 sensor ===");
+  
   // Initialize I2C bus for SGP40 sensor with clock stretching support
-  Wire.begin(4, 5); // SDA on GPIO4 (D2), SCL on GPIO5 (D1)
+  Wire.begin(SDA_PIN, SCL_PIN);
   Wire.setClock(100000); // Set to standard 100kHz
   Wire.setClockStretchLimit(200000); // Increase clock stretching limit
   
   // Scan for I2C devices
   scanI2CBus();
   
+  // Check if we need to try different I2C speeds
+  Wire.beginTransmission(SGP40_I2C_ADDRESS);
+  if (Wire.endTransmission() != 0) {
+    Serial.println("SGP40 not responding at default speed, trying alternatives...");
+    if (!tryDifferentI2CSpeeds()) {
+      Serial.println("Failed to communicate with SGP40 at any speed");
+      resetI2CBus();
+      return false;
+    }
+  }
+  
   // Initialize SGP40 sensor
   sgp40.begin(Wire);
-  
-  // VOCGasIndexAlgorithm is initialized automatically
-  // No explicit initialization needed
   
   // Check if sensor is responding
   uint16_t serialNumber[3];
@@ -108,13 +210,24 @@ void initSGP40() {
     Serial.print("Error getting serial number: ");
     errorToString(error, errorMessage, 256);
     Serial.println(errorMessage);
-  } else {
-    Serial.print("SGP40 Serial Number: ");
-    Serial.print(serialNumber[0], HEX);
-    Serial.print(serialNumber[1], HEX);
-    Serial.println(serialNumber[2], HEX);
-    Serial.println("SGP40 sensor detected!");
+    
+    // Try resetting the I2C bus
+    resetI2CBus();
+    sgp40.begin(Wire);
+    
+    // Try again
+    error = sgp40.getSerialNumber(serialNumber, 3);
+    if (error) {
+      Serial.println("Still can't get serial number after reset");
+      return false;
+    }
   }
+  
+  Serial.print("SGP40 Serial Number: ");
+  Serial.print(serialNumber[0], HEX);
+  Serial.print(serialNumber[1], HEX);
+  Serial.println(serialNumber[2], HEX);
+  Serial.println("SGP40 sensor detected!");
   
   // Self-test
   uint16_t testResult;
@@ -123,32 +236,13 @@ void initSGP40() {
     Serial.print("Error executing self-test: ");
     errorToString(error, errorMessage, 256);
     Serial.println(errorMessage);
+    return false;
   } else if (testResult != 0xD400) {
     Serial.print("Self-test failed, expected: 0xD400, got: 0x");
     Serial.println(testResult, HEX);
+    return false;
   } else {
     Serial.println("SGP40 self-test successful!");
-  }
-  
-  // Try to reset I2C bus if needed
-  if (error) {
-    Serial.println("Attempting to reset I2C bus...");
-    // Toggle SDA line to unstick any stuck devices
-    pinMode(4, OUTPUT);
-    for (int i = 0; i < 10; i++) {
-      digitalWrite(4, HIGH);
-      delayMicroseconds(5);
-      digitalWrite(4, LOW);
-      delayMicroseconds(5);
-    }
-    pinMode(4, INPUT);
-    
-    // Re-initialize I2C
-    Wire.begin(4, 5);
-    delay(100);
-    
-    // Try again
-    sgp40.begin(Wire);
   }
   
   // Conditioning phase
@@ -157,6 +251,7 @@ void initSGP40() {
   uint16_t defaultT = 0x6666;  // 25°C
   
   bool conditioningSuccess = false;
+  int successfulReadings = 0;
   
   for (uint16_t i = 0; i < CONDITIONING_DURATION_S; i++) {
     error = sgp40.measureRawSignal(defaultRh, defaultT, srawVoc);
@@ -169,7 +264,7 @@ void initSGP40() {
       delay(100);
       error = sgp40.measureRawSignal(defaultRh, defaultT, srawVoc);
       if (!error) {
-        conditioningSuccess = true;
+        successfulReadings++;
         Serial.print("Retry successful! Conditioning: ");
         Serial.print(i + 1);
         Serial.print("/");
@@ -180,7 +275,7 @@ void initSGP40() {
         Serial.println("Retry failed.");
       }
     } else {
-      conditioningSuccess = true;
+      successfulReadings++;
       Serial.print("Conditioning: ");
       Serial.print(i + 1);
       Serial.print("/");
@@ -191,12 +286,21 @@ void initSGP40() {
     delay(1000); // Wait 1 second
   }
   
-  if (conditioningSuccess) {
-    Serial.println("SGP40 conditioning completed successfully!");
+  if (successfulReadings > 0) {
+    conditioningSuccess = true;
+    Serial.print("SGP40 conditioning completed with ");
+    Serial.print(successfulReadings);
+    Serial.print("/");
+    Serial.print(CONDITIONING_DURATION_S);
+    Serial.println(" successful readings.");
   } else {
-    Serial.println("SGP40 conditioning completed with errors.");
+    Serial.println("SGP40 conditioning failed completely.");
     Serial.println("Check sensor wiring and connections.");
+    return false;
   }
+  
+  sensorConnected = conditioningSuccess;
+  return conditioningSuccess;
 }
 
 void setup() {
@@ -214,7 +318,12 @@ void setup() {
 
   // Initialize SGP40 sensor
   Serial.println("Initializing SGP40 sensor...");
-  initSGP40();
+  sensorConnected = initSGP40();
+  
+  if (!sensorConnected) {
+    Serial.println("WARNING: Could not initialize SGP40 sensor properly.");
+    Serial.println("Will continue with WiFi setup, but sensor readings may fail.");
+  }
   
   // Connect to WiFi
   Serial.print("Connecting to WiFi: ");
@@ -250,56 +359,88 @@ void loop() {
   static unsigned long lastSensorRead = 0;
   static unsigned long lastWifiCheck = 0;
   
-  // Read sensor data every 2 seconds
-  if (millis() - lastSensorRead >= 2000) {
+  // Read sensor data every 3 seconds
+  if (millis() - lastSensorRead >= 3000) {
     lastSensorRead = millis();
     
-    // Default humidity and temperature values (can be replaced with actual sensor values)
-    uint16_t defaultRh = 0x8000; // 50% relative humidity
-    uint16_t defaultT = 0x6666;  // 25°C
-    
-    static int errorCount = 0;
-    static bool rescanNeeded = false;
-    
-    // Measure VOC raw signal
-    error = sgp40.measureRawSignal(defaultRh, defaultT, srawVoc);
-    
-    if (error) {
-      errorCount++;
-      Serial.print("Error measuring raw signal: ");
-      errorToString(error, errorMessage, 256);
-      Serial.println(errorMessage);
-      
-      // If we get multiple consecutive errors, try to reset the I2C bus
-      if (errorCount > 5 && !rescanNeeded) {
-        Serial.println("Multiple errors detected. Rescanning I2C bus...");
-        scanI2CBus();
-        rescanNeeded = true;
-      }
-      
-      // Try to reset the sensor connection after 10 consecutive errors
-      if (errorCount > 10) {
-        Serial.println("Attempting to reset sensor connection...");
-        Wire.begin(4, 5);
-        sgp40.begin(Wire);
-        errorCount = 0;
+    if (!sensorConnected) {
+      // Try to reconnect to sensor periodically
+      static unsigned long lastReconnectAttempt = 0;
+      if (millis() - lastReconnectAttempt >= 30000) { // Try every 30 seconds
+        lastReconnectAttempt = millis();
+        Serial.println("\nAttempting to reconnect to SGP40 sensor...");
+        sensorConnected = initSGP40();
       }
     } else {
-      // Reset error count on successful reading
-      errorCount = 0;
-      rescanNeeded = false;
+      // Default humidity and temperature values (can be replaced with actual sensor values)
+      uint16_t defaultRh = 0x8000; // 50% relative humidity
+      uint16_t defaultT = 0x6666;  // 25°C
       
-      // Process raw signal with VOC Gas Index Algorithm
-      vocIndex = vocAlgorithm.process(srawVoc);
+      static int errorCount = 0;
+      static bool rescanNeeded = false;
       
-      // Print sensor readings
-      Serial.println("SGP40 Measurements:");
-      Serial.print("SRAW_VOC: ");
-      Serial.print(srawVoc);
-      Serial.print(" | VOC Index: ");
-      Serial.println(vocIndex);
+      // Measure VOC raw signal
+      error = sgp40.measureRawSignal(defaultRh, defaultT, srawVoc);
       
-      Serial.println("------------------------------");
+      if (error) {
+        errorCount++;
+        Serial.print("Error measuring raw signal: ");
+        errorToString(error, errorMessage, 256);
+        Serial.println(errorMessage);
+        
+        // If we get multiple consecutive errors, try to reset the I2C bus
+        if (errorCount > 3 && !rescanNeeded) {
+          Serial.println("Multiple errors detected. Rescanning I2C bus...");
+          scanI2CBus();
+          rescanNeeded = true;
+        }
+        
+        // Try to reset the sensor connection after 5 consecutive errors
+        if (errorCount > 5) {
+          Serial.println("Attempting to reset sensor connection...");
+          resetI2CBus();
+          sgp40.begin(Wire);
+          errorCount = 0;
+          
+          // Check if we've lost the sensor completely
+          if (errorCount > 10) {
+            Serial.println("Too many errors, marking sensor as disconnected");
+            sensorConnected = false;
+          }
+        }
+      } else {
+        // Reset error count on successful reading
+        errorCount = 0;
+        rescanNeeded = false;
+        
+        // Process raw signal with VOC Gas Index Algorithm
+        vocIndex = vocAlgorithm.process(srawVoc);
+        
+        // Print sensor readings
+        Serial.println("SGP40 Measurements:");
+        Serial.print("SRAW_VOC: ");
+        Serial.print(srawVoc);
+        Serial.print(" | VOC Index: ");
+        Serial.println(vocIndex);
+        
+        // VOC Index interpretation
+        Serial.print("Air Quality: ");
+        if (vocIndex <= 10) {
+          Serial.println("Excellent");
+        } else if (vocIndex <= 50) {
+          Serial.println("Good");
+        } else if (vocIndex <= 100) {
+          Serial.println("Moderate");
+        } else if (vocIndex <= 150) {
+          Serial.println("Poor");
+        } else if (vocIndex <= 200) {
+          Serial.println("Unhealthy");
+        } else {
+          Serial.println("Very Unhealthy");
+        }
+        
+        Serial.println("------------------------------");
+      }
     }
   }
   
