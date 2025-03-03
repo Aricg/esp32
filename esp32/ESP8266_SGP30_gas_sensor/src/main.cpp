@@ -3,6 +3,8 @@
 #include <Adafruit_SGP30.h>
 #include <Adafruit_SGP40.h>
 #include <ESP8266WiFi.h>
+#include <ESP8266HTTPClient.h>
+#include <WiFiClient.h>
 
 // Define pins for I2C
 #define SDA_PIN 4
@@ -11,6 +13,11 @@
 // WiFi credentials from environment variables
 const char* ssid = WIFI_SSID;
 const char* password = WIFI_PASSWORD;
+
+// Metrics server configuration
+const char* serverUrl = "http://192.168.88.126:5000/data";
+const unsigned long postInterval = 5000; // Post data every 5 seconds
+unsigned long lastPostTime = 0;
 
 // Create sensor objects
 Adafruit_SGP30 sgp30;
@@ -567,6 +574,22 @@ void loop() {
     }
   }
   
+  // Send data to metrics server every 5 seconds
+  if (millis() - lastPostTime > postInterval) {
+    lastPostTime = millis();
+    
+    // Only send if we have valid readings
+    if (sensorWorking) {
+      // Send TVOC data
+      sendSensorData("TVOC", TVOC);
+      
+      // Send eCO2 data
+      sendSensorData("eCO2", eCO2);
+      
+      Serial.println("Data sent to metrics server");
+    }
+  }
+  
   // Yield to prevent watchdog timer from triggering
   yield();
 }
@@ -695,6 +718,44 @@ String detectSensorType(uint8_t address) {
   
   Serial.println("Could not identify specific sensor type");
   return type;
+}
+
+// Function to send sensor data to the metrics server
+void sendSensorData(const char* sensorName, int sensorValue) {
+  if (WiFi.status() == WL_CONNECTED) {
+    WiFiClient client;
+    HTTPClient http;
+    
+    // Configure the request
+    http.begin(client, serverUrl);
+    http.addHeader("Content-Type", "application/json");
+    
+    // Create JSON payload
+    String payload = "{\"sensor_name\": \"";
+    payload += sensorName;
+    payload += "\", \"sensor_value\": ";
+    payload += sensorValue;
+    payload += "}";
+    
+    // Send the request
+    int httpResponseCode = http.POST(payload);
+    
+    // Check response
+    if (httpResponseCode > 0) {
+      String response = http.getString();
+      Serial.print("HTTP Response code: ");
+      Serial.println(httpResponseCode);
+      // Serial.println(response); // Uncomment to see full response
+    } else {
+      Serial.print("Error on sending POST: ");
+      Serial.println(httpResponseCode);
+    }
+    
+    // Free resources
+    http.end();
+  } else {
+    Serial.println("WiFi not connected");
+  }
 }
 
 // Function to convert relative humidity to absolute humidity
