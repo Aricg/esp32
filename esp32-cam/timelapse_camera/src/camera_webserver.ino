@@ -164,8 +164,8 @@ void setup() {
   Serial.println(s->id.PID, HEX);
 
   // Set vertical flip based on build flag
-  s->set_vflip(s, VERTICAL_FLIP);
-  Serial.printf("Vertical flip: %s\n", VERTICAL_FLIP ? "Enabled" : "Disabled");
+  s->set_vflip(s, VERTICAL_FLIP == 1);
+  Serial.printf("Vertical flip: %s\n", (VERTICAL_FLIP == 1) ? "Enabled" : "Disabled");
 
   if (s->id.PID == OV3660_PID) {
     s->set_brightness(s, 1);
