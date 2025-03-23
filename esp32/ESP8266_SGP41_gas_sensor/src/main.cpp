@@ -30,6 +30,10 @@ void sendSensorData(const char* sensorName, int sensorValue);
 uint8_t sensorAddress = 0x59; // SGP41 address
 String sensorType = "SGP41"; // We're focusing on SGP41 only
 
+// Default values for humidity and temperature compensation (50% RH, 25°C)
+uint16_t defaultRh = 0x8000; // 50% RH in fixed point format
+uint16_t defaultT = 0x6666;  // 25°C in fixed point format
+
 // Variables to store sensor readings
 uint16_t TVOC = 0;
 uint16_t eCO2 = 0;
@@ -89,22 +93,52 @@ void setup() {
   
   // Initialize SGP41
   bool sensorFound = false;
-  
+  uint16_t error = 0;
+  char errorMessage[256];
+
   for (int attempt = 1; attempt <= 3 && !sensorFound; attempt++) {
     Serial.print("SGP41 init attempt ");
     Serial.print(attempt);
     Serial.println("/3");
     delay(50);
     
+    // Test I2C communication
     Wire.beginTransmission(0x59);
     if (Wire.endTransmission() == 0) {
+      // Initialize SGP41
       sgp41.begin(Wire);
-      Serial.println("SGP41 sensor initialized successfully!");
-      sensorFound = true;
-      sensorType = "SGP41";
-      delay(50);
+      
+      // Test communication with a simple command
+      uint16_t testValue = 0;
+      error = sgp41.executeSelfTest(testValue);
+      
+      if (error == 0 && testValue == 0xD400) {
+        Serial.println("SGP41 sensor initialized successfully!");
+        sensorFound = true;
+        sensorType = "SGP41";
+        
+        // Perform initial conditioning
+        uint16_t srawVoc = 0, srawNox = 0;
+        error = sgp41.executeConditioning(defaultRh, defaultT, srawVoc);
+        if (error == 0) {
+          Serial.println("Sensor conditioning complete");
+        } else {
+          snprintf(errorMessage, sizeof(errorMessage), 
+                 "Conditioning warning (error: 0x%04X)", error);
+          Serial.println(errorMessage);
+          // Continue anyway, this is just a warning
+        }
+      } else {
+        snprintf(errorMessage, sizeof(errorMessage),
+                "Self test failed (error: 0x%04X, value: 0x%04X)",
+                error, testValue);
+        Serial.println(errorMessage);
+      }
     } else {
-      Serial.println("SGP41 init failed");
+      Serial.println("I2C communication failed");
+    }
+    
+    if (!sensorFound) {
       delay(500);
     }
   }
@@ -134,32 +168,27 @@ void loop() {
       uint16_t error;
       uint16_t srawVoc = 0;
       uint16_t srawNox = 0;
-      int32_t vocIndex = 0;
-      int32_t noxIndex = 0;
-      
-      // Use default values for humidity and temperature (50% RH, 25°C)
-      uint16_t defaultRh = 0x8000; // 50% RH in fixed point format
-      uint16_t defaultT = 0x6666;  // 25°C in fixed point format
       
       // Measure raw signals with default compensation
       error = sgp41.measureRawSignals(defaultRh, defaultT, srawVoc, srawNox);
       
       if (error == 0) {
-        // Calculate VOC and NOx indices
-        vocIndex = srawVoc; // SGP41 raw VOC is already in index format
-        noxIndex = srawNox; // SGP41 raw NOx is already in index format
-        
         // Update our global variables
-        TVOC = vocIndex;
-        eCO2 = noxIndex;
+        TVOC = srawVoc;
+        eCO2 = srawNox;
         
         readSuccess = true;
         
         // Debug info
         Serial.print("SGP41 VOC Index: ");
-        Serial.print(vocIndex);
+        Serial.print(TVOC);
         Serial.print(", NOx Index: ");
-        Serial.println(noxIndex);
+        Serial.println(eCO2);
+      } else {
+        char errorMessage[256];
+        snprintf(errorMessage, sizeof(errorMessage),
+                "Measurement failed with error: 0x%04X", error);
+        Serial.println(errorMessage);
       }
       
       if (!readSuccess) {
@@ -180,15 +209,32 @@ void loop() {
           delay(10);
           
           Wire.beginTransmission(0x59);
-          sensorWorking = (Wire.endTransmission() == 0);
-          if (sensorWorking) {
+          if (Wire.endTransmission() == 0) {
             sgp41.begin(Wire);
-          }
-          
-          if (sensorWorking) {
-            Serial.println("Sensor reinitialized OK");
-            delay(10);
-            failCount = 0;
+            
+            // Verify communication with a self-test
+            uint16_t testValue = 0;
+            uint16_t error = sgp41.executeSelfTest(testValue);
+            
+            if (error == 0 && testValue == 0xD400) {
+              Serial.println("Sensor reinitialized OK");
+              sensorWorking = true;
+              
+              // Reset counters and perform conditioning
+              failCount = 0;
+              uint16_t srawVoc = 0;
+              sgp41.executeConditioning(defaultRh, defaultT, srawVoc);
+            } else {
+              char errorMessage[256];
+              snprintf(errorMessage, sizeof(errorMessage),
+                      "Reinit self-test failed (error: 0x%04X, value: 0x%04X)",
+                      error, testValue);
+              Serial.println(errorMessage);
+              sensorWorking = false;
+            }
+          } else {
+            Serial.println("I2C communication still failing during reinit");
+            sensorWorking = false;
           }
         }
       } else {
@@ -214,14 +260,32 @@ void loop() {
         Serial.println("Reconnecting to sensor...");
         delay(10);
         Wire.beginTransmission(0x59);
-        sensorWorking = (Wire.endTransmission() == 0);
-        if (sensorWorking) {
+        if (Wire.endTransmission() == 0) {
           sgp41.begin(Wire);
-        }
-        if (sensorWorking) {
-          Serial.println("Sensor reconnected");
-          delay(10);
-          failCount = 0;
+          
+          // Verify with self-test
+          uint16_t testValue = 0;
+          uint16_t error = sgp41.executeSelfTest(testValue);
+          
+          if (error == 0 && testValue == 0xD400) {
+            Serial.println("Sensor reconnected successfully");
+            sensorWorking = true;
+            failCount = 0;
+            
+            // Recondition sensor
+            uint16_t srawVoc = 0;
+            sgp41.executeConditioning(defaultRh, defaultT, srawVoc);
+          } else {
+            char errorMessage[256];
+            snprintf(errorMessage, sizeof(errorMessage),
+                    "Reconnect self-test failed (error: 0x%04X, value: 0x%04X)",
+                    error, testValue);
+            Serial.println(errorMessage);
+            sensorWorking = false;
+          }
+        } else {
+          Serial.println("I2C communication still failing during reconnect");
+          sensorWorking = false;
         }
       }
     }
