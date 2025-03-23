@@ -26,19 +26,6 @@ void scanI2CBus();
 String detectSensorType(uint8_t address);
 void sendSensorData(const char* sensorName, int sensorValue);
 bool checkI2CConnection();
-bool checkI2CConnection();
-
-// Function to check I2C connection
-bool checkI2CConnection() {
-    Wire.beginTransmission(0x59);
-    byte error = Wire.endTransmission();
-    if (error != 0) {
-        Serial.print("I2C connection check failed with error: 0x");
-        Serial.println(error, HEX);
-        return false;
-    }
-    return true;
-}
 
 // Function to check I2C connection
 bool checkI2CConnection() {
@@ -87,20 +74,6 @@ void setup() {
   Wire.setClock(10000); // 10 kHz
   Serial.println("I2C clock set to 10 kHz for stability");
   delay(50);
-  
-  // Test I2C bus
-  Wire.beginTransmission(0x59);
-  byte i2cError = Wire.endTransmission();
-  if (i2cError != 0) {
-      Serial.print("I2C communication test failed with error: 0x");
-      Serial.println(i2cError, HEX);
-      Serial.println("Check wiring and pullup resistors");
-      while (true) {
-          delay(1000); // Halt if I2C communication fails
-      }
-  } else {
-      Serial.println("I2C communication test successful");
-  }
   
   // Test I2C bus
   Wire.beginTransmission(0x59);
