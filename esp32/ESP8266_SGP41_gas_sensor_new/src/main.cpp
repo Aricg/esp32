@@ -2,83 +2,12 @@
 #include <SensirionI2CSgp41.h>
 #include <Wire.h>
 
+// Define pins for ESP8266 I2C
+#define SDA_PIN D2  // GPIO4
+#define SCL_PIN D1  // GPIO5
+
 SensirionI2CSgp41 sgp41;
-int conditioning_s = 10; // Initial conditioning phase in seconds
-
-// Time in seconds needed for NOx conditioning
-uint16_t conditioning_s = 10;
-
-void setup() {
-  Serial.begin(115200);
-  while (!Serial) {
-    delay(100);
-  }
-
-  Wire.begin();
-  sgp41.begin(Wire);
-
-  // Get and print serial number
-  uint16_t error;
-  char errorMessage[256];
-  uint16_t serialNumber[3];
-  error = sgp41.getSerialNumber(serialNumber);
-
-  if (error) {
-    Serial.print("Error trying to execute getSerialNumber(): ");
-    errorToString(error, errorMessage, 256);
-    Serial.println(errorMessage);
-  } else {
-    Serial.print("SerialNumber: 0x");
-    for (size_t i = 0; i < 3; i++) {
-      Serial.print(serialNumber[i], HEX);
-    }
-    Serial.println();
-  }
-
-  // Execute self test
-  uint16_t testResult;
-  error = sgp41.executeSelfTest(testResult);
-  if (error) {
-    Serial.print("Error trying to execute executeSelfTest(): ");
-    errorToString(error, errorMessage, 256);
-    Serial.println(errorMessage);
-  } else if (testResult != 0xD400) {
-    Serial.print("executeSelfTest failed with error: ");
-    Serial.println(testResult);
-  }
-}
-
-void loop() {
-  uint16_t error;
-  char errorMessage[256];
-  uint16_t defaultRh = 0x8000; // 50% RH
-  uint16_t defaultT = 0x6666;  // 25°C
-  uint16_t srawVoc = 0;
-  uint16_t srawNox = 0;
-
-  delay(1000);
-
-  if (conditioning_s > 0) {
-    // During NOx conditioning (10s) SRAW NOx will remain 0
-    error = sgp41.executeConditioning(defaultRh, defaultT, srawVoc);
-    conditioning_s--;
-  } else {
-    // Read Measurement
-    error = sgp41.measureRawSignals(defaultRh, defaultT, srawVoc, srawNox);
-  }
-
-  if (error) {
-    Serial.print("Error trying to execute measureRawSignals(): ");
-    errorToString(error, errorMessage, 256);
-    Serial.println(errorMessage);
-  } else {
-    Serial.print("SRAW_VOC:");
-    Serial.print(srawVoc);
-    Serial.print("\t");
-    Serial.print("SRAW_NOx:");
-    Serial.println(srawNox);
-  }
-}
+uint16_t conditioning_s = 10; // Initial conditioning phase in seconds
 
 void scanI2C() {
   Serial.println("Scanning I2C bus...");
@@ -116,8 +45,7 @@ void setup() {
   Serial.println("\nESP8266 SGP41 Gas Sensor Test");
 
   // Initialize I2C with proper pins for ESP8266
-  // SDA = GPIO4 (D2), SCL = GPIO5 (D1)
-  Wire.begin();
+  Wire.begin(SDA_PIN, SCL_PIN);
   Wire.setClock(100000); // Lower I2C clock speed to 100kHz for stability
 
   // Scan I2C bus to see if sensor is detected
@@ -139,6 +67,35 @@ void setup() {
         "Check your wiring and power supply. SGP41 should be at address 0x59.");
   } else {
     Serial.println("SGP41 initialized successfully");
+    
+    // Get and print serial number
+    uint16_t serialNumber[3];
+    error = sgp41.getSerialNumber(serialNumber);
+    if (error) {
+      Serial.print("Error getting serial number: ");
+      errorToString(error, errorMessage, 256);
+      Serial.println(errorMessage);
+    } else {
+      Serial.print("SerialNumber: 0x");
+      for (size_t i = 0; i < 3; i++) {
+        Serial.print(serialNumber[i], HEX);
+      }
+      Serial.println();
+    }
+    
+    // Execute self test
+    uint16_t testResult;
+    error = sgp41.executeSelfTest(testResult);
+    if (error) {
+      Serial.print("Error in self test: ");
+      errorToString(error, errorMessage, 256);
+      Serial.println(errorMessage);
+    } else if (testResult != 0xD400) {
+      Serial.print("Self test failed with error: ");
+      Serial.println(testResult, HEX);
+    } else {
+      Serial.println("Self test passed");
+    }
   }
 
   Serial.println("Initial conditioning phase starting...");
