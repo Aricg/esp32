@@ -1,6 +1,6 @@
 #include <Arduino.h>
 #include <Wire.h>
-#include <Adafruit_SGP40.h>
+#include <SensirionI2CSgp41.h>
 #include <ESP8266WiFi.h>
 #include <ESP8266HTTPClient.h>
 #include <WiFiClient.h>
@@ -19,7 +19,7 @@ const unsigned long postInterval = 10000; // Post data every 10 seconds
 unsigned long lastPostTime = 0;
 
 // Create sensor object
-Adafruit_SGP40 sgp40;
+SensirionI2CSgp41 sgp41;
 
 // Function prototypes
 void scanI2CBus();
@@ -27,8 +27,8 @@ String detectSensorType(uint8_t address);
 void sendSensorData(const char* sensorName, int sensorValue);
 
 // Global variables for sensor control
-uint8_t sensorAddress = 0x59; // SGP40 address
-String sensorType = "SGP40"; // We're focusing on SGP40 only
+uint8_t sensorAddress = 0x59; // SGP41 address
+String sensorType = "SGP41"; // We're focusing on SGP41 only
 
 // Variables to store sensor readings
 uint16_t TVOC = 0;
@@ -64,8 +64,8 @@ void setup() {
   Serial.print("Connected to WiFi, IP address: ");
   Serial.println(WiFi.localIP());
 
-  // Initialize SGP40 sensor
-  Serial.println("Initializing SGP40 sensor...");
+  // Initialize SGP41 sensor
+  Serial.println("Initializing SGP41 sensor...");
   delay(50);
   
   // Set I2C to a slower speed for better reliability
@@ -87,28 +87,30 @@ void setup() {
   Wire.begin(SDA_PIN, SCL_PIN);
   delay(200);
   
-  // Initialize SGP40
+  // Initialize SGP41
   bool sensorFound = false;
   
   for (int attempt = 1; attempt <= 3 && !sensorFound; attempt++) {
-    Serial.print("SGP40 init attempt ");
+    Serial.print("SGP41 init attempt ");
     Serial.print(attempt);
     Serial.println("/3");
     delay(50);
     
-    if (sgp40.begin()) {
-      Serial.println("SGP40 sensor initialized successfully!");
+    Wire.beginTransmission(0x59);
+    if (Wire.endTransmission() == 0) {
+      sgp41.begin(Wire);
+      Serial.println("SGP41 sensor initialized successfully!");
       sensorFound = true;
-      sensorType = "SGP40";
+      sensorType = "SGP41";
       delay(50);
     } else {
-      Serial.println("SGP40 init failed");
+      Serial.println("SGP41 init failed");
       delay(500);
     }
   }
   
   if (!sensorFound) {
-    Serial.println("Failed to find SGP40 sensor after multiple attempts.");
+    Serial.println("Failed to find SGP41 sensor after multiple attempts.");
     Serial.println("The program will continue but sensor readings will be invalid.");
   }
 
@@ -128,38 +130,33 @@ void loop() {
     if (sensorWorking) {
       bool readSuccess = false;
       
-      // SGP40 library reading - get raw value and convert to VOC index
-      int32_t raw_reading = sgp40.measureRaw();
-      if (raw_reading >= 0) {
-        // Process the raw reading to get a VOC index
-        // SGP40 raw values are typically in the 20,000-40,000 range
-        int voc_index;
-        if (raw_reading > 40000) {
-          voc_index = 500; // Very high VOC
-        } else if (raw_reading < 20000) {
-          voc_index = 0; // Very low VOC
-        } else {
-          // Map 20000-40000 to 0-500
-          voc_index = map(raw_reading, 20000, 40000, 0, 500);
-        }
+      // SGP41 measurement variables
+      uint16_t error;
+      uint16_t srawVoc = 0;
+      uint16_t srawNox = 0;
+      int32_t vocIndex = 0;
+      int32_t noxIndex = 0;
+      char errorMessage[256];
+      
+      // Measure both VOC and NOx
+      error = sgp41.measureRawSignals(srawVoc, srawNox);
+      
+      if (error == 0) {
+        // Convert raw signals to indices
+        sgp41.convertRawSignalToVocIndex(srawVoc, vocIndex);
+        sgp41.convertRawSignalToNoxIndex(srawNox, noxIndex);
         
-        TVOC = voc_index;
-        
-        // Convert VOC index to approximate eCO2 (very rough estimate)
-        // VOC index of 100 is "normal", higher is worse air quality
-        if (voc_index < 100) {
-          eCO2 = 400 + voc_index; // Minimal CO2 increase for good air
-        } else {
-          eCO2 = 500 + (voc_index - 100) * 5; // More aggressive scaling for poor air
-        }
+        // Update our global variables
+        TVOC = vocIndex;
+        eCO2 = noxIndex; // Using NOx as eCO2 equivalent
         
         readSuccess = true;
         
         // Debug info
-        Serial.print("SGP40 Raw: ");
-        Serial.print(raw_reading);
-        Serial.print(", VOC Index: ");
-        Serial.println(voc_index);
+        Serial.print("SGP41 VOC Index: ");
+        Serial.print(vocIndex);
+        Serial.print(", NOx Index: ");
+        Serial.println(noxIndex);
       }
       
       if (!readSuccess) {
@@ -179,7 +176,11 @@ void loop() {
           Serial.println("Reinitializing sensor...");
           delay(10);
           
-          sensorWorking = sgp40.begin();
+          Wire.beginTransmission(0x59);
+          sensorWorking = (Wire.endTransmission() == 0);
+          if (sensorWorking) {
+            sgp41.begin(Wire);
+          }
           
           if (sensorWorking) {
             Serial.println("Sensor reinitialized OK");
@@ -209,7 +210,11 @@ void loop() {
         lastReconnectAttempt = millis();
         Serial.println("Reconnecting to sensor...");
         delay(10);
-        sensorWorking = sgp40.begin();
+        Wire.beginTransmission(0x59);
+        sensorWorking = (Wire.endTransmission() == 0);
+        if (sensorWorking) {
+          sgp41.begin(Wire);
+        }
         if (sensorWorking) {
           Serial.println("Sensor reconnected");
           delay(10);
@@ -218,18 +223,20 @@ void loop() {
       }
     }
     
-    // Optional: Set absolute humidity to improve accuracy (uncomment if you have temp/humidity sensor)
+    // Optional: Set humidity and temperature compensation for SGP41 (uncomment if you have temp/humidity sensor)
     // float temperature = 22.1; // Replace with actual temperature reading
     // float humidity = 45.2;    // Replace with actual humidity reading
-    // sgp.setHumidity(getAbsoluteHumidity(temperature, humidity));
+    // uint16_t defaultRh = 0x8000; // 50% relative humidity as default
+    // uint16_t defaultT = 0x6666;  // 25°C as default
+    // sgp41.setCompensationValues(defaultRh, defaultT);
   }
   
   // Perform periodic maintenance every hour
   if (millis() - lastBaseline > 3600000) {
     lastBaseline = millis();
     
-    // SGP40 doesn't have the same baseline concept as SGP30
-    Serial.println("SGP40 hourly maintenance checkpoint");
+    // SGP41 also doesn't have the same baseline concept as SGP30
+    Serial.println("SGP41 hourly maintenance checkpoint");
   }
   
   // Send data to metrics server every 5 seconds
@@ -238,11 +245,11 @@ void loop() {
     
     // Only send if we have valid readings
     if (sensorWorking) {
-      // Send TVOC data
-      sendSensorData("TVOC", TVOC);
+      // Send VOC Index data
+      sendSensorData("VOC", TVOC);
       
-      // Send eCO2 data
-      sendSensorData("eCO2", eCO2);
+      // Send NOx Index data
+      sendSensorData("NOx", eCO2);
       
       Serial.println("Data sent to metrics server");
     }
