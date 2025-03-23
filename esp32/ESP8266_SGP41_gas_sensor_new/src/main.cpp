@@ -91,7 +91,6 @@ void setup() {
     } else {
       Serial.println("Self test passed");
     }
-  }
 
   Serial.println("Initial conditioning phase starting...");
 }
