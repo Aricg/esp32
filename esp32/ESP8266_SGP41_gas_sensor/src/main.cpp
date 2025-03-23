@@ -77,10 +77,10 @@ void setup() {
   
   // Test I2C bus
   Wire.beginTransmission(0x59);
-  byte error = Wire.endTransmission();
-  if (error != 0) {
+  byte i2cError = Wire.endTransmission();
+  if (i2cError != 0) {
       Serial.print("I2C communication test failed with error: 0x");
-      Serial.println(error, HEX);
+      Serial.println(i2cError, HEX);
       Serial.println("Check wiring and pullup resistors");
       while (true) {
           delay(1000); // Halt if I2C communication fails
