@@ -39,6 +39,7 @@ uint16_t TVOC = 0;
 uint16_t eCO2 = 0;
 uint32_t lastMeasurement = 0;
 uint32_t lastBaseline = 0;
+uint16_t conditioning_s = 10; // Initial conditioning period in seconds
 
 void setup() {
   // Initialize serial communication
@@ -95,57 +96,51 @@ void setup() {
   bool sensorFound = false;
   uint16_t error = 0;
   char errorMessage[256];
-
-  for (int attempt = 1; attempt <= 3 && !sensorFound; attempt++) {
-    Serial.print("SGP41 init attempt ");
-    Serial.print(attempt);
-    Serial.println("/3");
-    delay(50);
-    
-    // Test I2C communication
-    Wire.beginTransmission(0x59);
-    if (Wire.endTransmission() == 0) {
-      // Initialize SGP41
-      sgp41.begin(Wire);
-      
-      // Test communication with a simple command
-      uint16_t testValue = 0;
-      error = sgp41.executeSelfTest(testValue);
-      
-      if (error == 0 && testValue == 0xD400) {
-        Serial.println("SGP41 sensor initialized successfully!");
-        sensorFound = true;
-        sensorType = "SGP41";
-        
-        // Perform initial conditioning
-        uint16_t srawVoc = 0, srawNox = 0;
-        error = sgp41.executeConditioning(defaultRh, defaultT, srawVoc);
-        if (error == 0) {
-          Serial.println("Sensor conditioning complete");
-        } else {
-          snprintf(errorMessage, sizeof(errorMessage), 
-                 "Conditioning warning (error: 0x%04X)", error);
-          Serial.println(errorMessage);
-          // Continue anyway, this is just a warning
-        }
-      } else {
-        snprintf(errorMessage, sizeof(errorMessage),
-                "Self test failed (error: 0x%04X, value: 0x%04X)",
-                error, testValue);
-        Serial.println(errorMessage);
+  
+  // Initialize SGP41
+  sgp41.begin(Wire);
+  
+  // Get and print serial number
+  uint8_t serialNumberSize = 3;
+  uint16_t serialNumber[serialNumberSize];
+  error = sgp41.getSerialNumber(serialNumber);
+  
+  if (error) {
+      snprintf(errorMessage, sizeof(errorMessage),
+              "Error getting serial number: 0x%04X", error);
+      Serial.println(errorMessage);
+  } else {
+      Serial.print("SerialNumber: 0x");
+      for (size_t i = 0; i < serialNumberSize; i++) {
+          uint16_t value = serialNumber[i];
+          Serial.print(value < 4096 ? "0" : "");
+          Serial.print(value < 256 ? "0" : "");
+          Serial.print(value < 16 ? "0" : "");
+          Serial.print(value, HEX);
       }
-    } else {
-      Serial.println("I2C communication failed");
-    }
-    
-    if (!sensorFound) {
-      delay(500);
-    }
+      Serial.println();
+  }
+  
+  // Execute self-test
+  uint16_t testResult;
+  error = sgp41.executeSelfTest(testResult);
+  if (error) {
+      snprintf(errorMessage, sizeof(errorMessage),
+              "Self test error: 0x%04X", error);
+      Serial.println(errorMessage);
+  } else if (testResult != 0xD400) {
+      snprintf(errorMessage, sizeof(errorMessage),
+              "Self test failed: 0x%04X", testResult);
+      Serial.println(errorMessage);
+  } else {
+      Serial.println("Self test passed successfully");
+      sensorFound = true;
+      sensorType = "SGP41";
   }
   
   if (!sensorFound) {
-    Serial.println("Failed to find SGP41 sensor after multiple attempts.");
-    Serial.println("The program will continue but sensor readings will be invalid.");
+      Serial.println("Failed to find SGP41 sensor after self-test.");
+      Serial.println("The program will continue but sensor readings will be invalid.");
   }
 
   // Set up initial baseline after 12 hours
@@ -162,36 +157,52 @@ void loop() {
     lastMeasurement = millis();
     
     if (sensorWorking) {
-      bool readSuccess = false;
-      
       // SGP41 measurement variables
       uint16_t error;
       uint16_t srawVoc = 0;
       uint16_t srawNox = 0;
       
-      // Measure raw signals with default compensation
-      error = sgp41.measureRawSignals(defaultRh, defaultT, srawVoc, srawNox);
+      if (conditioning_s > 0) {
+        // During NOx conditioning (10s) SRAW NOx will remain 0
+        error = sgp41.executeConditioning(defaultRh, defaultT, srawVoc);
+        conditioning_s--;
+        
+        // Debug info during conditioning
+        if (millis() - printInterval > 1000) {
+          printInterval = millis();
+          Serial.print("NOx conditioning: ");
+          Serial.print(10 - conditioning_s);
+          Serial.print("/10s, VOC: ");
+          Serial.println(srawVoc);
+        }
+      } else {
+        // Measure raw signals with default compensation after conditioning
+        error = sgp41.measureRawSignals(defaultRh, defaultT, srawVoc, srawNox);
+      }
       
       if (error == 0) {
         // Update our global variables
         TVOC = srawVoc;
         eCO2 = srawNox;
         
-        readSuccess = true;
+        // Only print final readings when not in conditioning phase
+        if (conditioning_s == 0 && millis() - printInterval > 5000) {
+          printInterval = millis();
+          Serial.print("SRAW_VOC: "); 
+          Serial.print(TVOC); 
+          Serial.print(", SRAW_NOx: "); 
+          Serial.println(eCO2);
+          delay(10);
+        }
         
-        // Debug info
-        Serial.print("SGP41 VOC Index: ");
-        Serial.print(TVOC);
-        Serial.print(", NOx Index: ");
-        Serial.println(eCO2);
+        // Reset fail counter on successful reading
+        failCount = 0;
       } else {
         char errorMessage[256];
         snprintf(errorMessage, sizeof(errorMessage),
                 "Measurement failed with error: 0x%04X", error);
         Serial.println(errorMessage);
-      }
-      
-      if (!readSuccess) {
+        
         failCount++;
         
         // Only print every 5 seconds to reduce serial traffic
@@ -202,54 +213,39 @@ void loop() {
           Serial.println("/5)");
           delay(10);
         }
+      }
+      
+      // After 5 consecutive failures, try to reinitialize
+      if (failCount >= 5) {
+        Serial.println("Reinitializing sensor...");
+        delay(10);
         
-        // After 5 consecutive failures, try to reinitialize
-        if (failCount >= 5) {
-          Serial.println("Reinitializing sensor...");
-          delay(10);
+        Wire.beginTransmission(0x59);
+        if (Wire.endTransmission() == 0) {
+          sgp41.begin(Wire);
           
-          Wire.beginTransmission(0x59);
-          if (Wire.endTransmission() == 0) {
-            sgp41.begin(Wire);
+          // Verify communication with a self-test
+          uint16_t testValue = 0;
+          uint16_t error = sgp41.executeSelfTest(testValue);
+          
+          if (error == 0 && testValue == 0xD400) {
+            Serial.println("Sensor reinitialized OK");
+            sensorWorking = true;
             
-            // Verify communication with a self-test
-            uint16_t testValue = 0;
-            uint16_t error = sgp41.executeSelfTest(testValue);
-            
-            if (error == 0 && testValue == 0xD400) {
-              Serial.println("Sensor reinitialized OK");
-              sensorWorking = true;
-              
-              // Reset counters and perform conditioning
-              failCount = 0;
-              uint16_t srawVoc = 0;
-              sgp41.executeConditioning(defaultRh, defaultT, srawVoc);
-            } else {
-              char errorMessage[256];
-              snprintf(errorMessage, sizeof(errorMessage),
-                      "Reinit self-test failed (error: 0x%04X, value: 0x%04X)",
-                      error, testValue);
-              Serial.println(errorMessage);
-              sensorWorking = false;
-            }
+            // Reset counters and restart conditioning
+            failCount = 0;
+            conditioning_s = 10;
           } else {
-            Serial.println("I2C communication still failing during reinit");
+            char errorMessage[256];
+            snprintf(errorMessage, sizeof(errorMessage),
+                    "Reinit self-test failed (error: 0x%04X, value: 0x%04X)",
+                    error, testValue);
+            Serial.println(errorMessage);
             sensorWorking = false;
           }
-        }
-      } else {
-        // Reset fail counter on successful reading
-        failCount = 0;
-        
-        // Print readings every 5 seconds to reduce serial traffic
-        if (millis() - printInterval > 5000) {
-          printInterval = millis();
-          Serial.print("TVOC: "); 
-          Serial.print(TVOC); 
-          Serial.print(" ppb, eCO2: "); 
-          Serial.print(eCO2); 
-          Serial.println(" ppm");
-          delay(10);
+        } else {
+          Serial.println("I2C communication still failing during reinit");
+          sensorWorking = false;
         }
       }
     } else {
@@ -272,9 +268,8 @@ void loop() {
             sensorWorking = true;
             failCount = 0;
             
-            // Recondition sensor
-            uint16_t srawVoc = 0;
-            sgp41.executeConditioning(defaultRh, defaultT, srawVoc);
+            // Restart conditioning sequence
+            conditioning_s = 10;
           } else {
             char errorMessage[256];
             snprintf(errorMessage, sizeof(errorMessage),
