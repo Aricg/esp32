@@ -55,21 +55,16 @@ void setup() {
   Serial.println("Waiting for sensor to initialize...");
   delay(2000);
 
+  // Initialize SGP41 (begin() doesn't return a value)
+  sgp41.begin(Wire);
+  Serial.println("SGP41 initialized successfully");
+  
+  // Error handling for subsequent operations
   uint16_t error;
   char errorMessage[256];
-
-  error = sgp41.begin(Wire);
-  if (error) {
-    Serial.print("Error initializing SGP41: ");
-    errorToString(error, errorMessage, 256);
-    Serial.println(errorMessage);
-    Serial.println(
-        "Check your wiring and power supply. SGP41 should be at address 0x59.");
-  } else {
-    Serial.println("SGP41 initialized successfully");
-    
-    // Get and print serial number
-    uint16_t serialNumber[3];
+  
+  // Get and print serial number
+  uint16_t serialNumber[3];
     error = sgp41.getSerialNumber(serialNumber);
     if (error) {
       Serial.print("Error getting serial number: ");
