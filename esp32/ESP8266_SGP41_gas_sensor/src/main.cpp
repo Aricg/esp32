@@ -25,6 +25,19 @@ SensirionI2CSgp41 sgp41;
 void scanI2CBus();
 String detectSensorType(uint8_t address);
 void sendSensorData(const char* sensorName, int sensorValue);
+bool checkI2CConnection();
+
+// Function to check I2C connection
+bool checkI2CConnection() {
+    Wire.beginTransmission(0x59);
+    byte error = Wire.endTransmission();
+    if (error != 0) {
+        Serial.print("I2C connection check failed with error: 0x");
+        Serial.println(error, HEX);
+        return false;
+    }
+    return true;
+}
 
 // Global variables for sensor control
 uint8_t sensorAddress = 0x59; // SGP41 address
@@ -51,9 +64,30 @@ void setup() {
   delay(2000);
   Serial.println("Initializing I2C...");
   
-  // Initialize I2C with custom pins
+  // Initialize I2C with custom pins and pullups
   Wire.begin(SDA_PIN, SCL_PIN);
+  pinMode(SDA_PIN, INPUT_PULLUP);
+  pinMode(SCL_PIN, INPUT_PULLUP);
   delay(500); // Give I2C time to initialize
+  
+  // Set I2C to a slower speed for better reliability
+  Wire.setClock(10000); // 10 kHz
+  Serial.println("I2C clock set to 10 kHz for stability");
+  delay(50);
+  
+  // Test I2C bus
+  Wire.beginTransmission(0x59);
+  byte error = Wire.endTransmission();
+  if (error != 0) {
+      Serial.print("I2C communication test failed with error: 0x");
+      Serial.println(error, HEX);
+      Serial.println("Check wiring and pullup resistors");
+      while (true) {
+          delay(1000); // Halt if I2C communication fails
+      }
+  } else {
+      Serial.println("I2C communication test successful");
+  }
   
   // Scan I2C bus to see what devices are connected
   scanI2CBus();
@@ -73,74 +107,64 @@ void setup() {
   Serial.println("Initializing SGP41 sensor...");
   delay(50);
   
-  // Set I2C to a slower speed for better reliability
-  Wire.setClock(10000); // 10 kHz
-  Serial.println("I2C clock set to 10 kHz for stability");
-  delay(50);
-  
   Serial.print("Using I2C pins - SDA: ");
   Serial.print(SDA_PIN);
   Serial.print(", SCL: ");
   Serial.println(SCL_PIN);
   delay(50);
   
-  // End any pending transmission
-  Wire.endTransmission(true);
-  delay(100);
-  
-  // Re-initialize I2C with pullups enabled
-  Wire.begin(SDA_PIN, SCL_PIN);
-  delay(200);
-  
   // Initialize SGP41
   bool sensorFound = false;
-  uint16_t error = 0;
   char errorMessage[256];
   
   // Initialize SGP41
   sgp41.begin(Wire);
   
-  // Get and print serial number
-  uint8_t serialNumberSize = 3;
-  uint16_t serialNumber[serialNumberSize];
-  error = sgp41.getSerialNumber(serialNumber);
+  // Test communication with a simple command
+  uint16_t testValue = 0;
+  uint16_t error = sgp41.executeSelfTest(testValue);
   
-  if (error) {
+  if (error != 0) {
+      char errorMessage[256];
       snprintf(errorMessage, sizeof(errorMessage),
-              "Error getting serial number: 0x%04X", error);
+              "Self test failed with error: 0x%04X", error);
       Serial.println(errorMessage);
-  } else {
-      Serial.print("SerialNumber: 0x");
-      for (size_t i = 0; i < serialNumberSize; i++) {
-          uint16_t value = serialNumber[i];
-          Serial.print(value < 4096 ? "0" : "");
-          Serial.print(value < 256 ? "0" : "");
-          Serial.print(value < 16 ? "0" : "");
-          Serial.print(value, HEX);
+      Serial.println("Check sensor wiring and power supply");
+      while (true) {
+          delay(1000); // Halt if sensor initialization fails
       }
-      Serial.println();
-  }
-  
-  // Execute self-test
-  uint16_t testResult;
-  error = sgp41.executeSelfTest(testResult);
-  if (error) {
-      snprintf(errorMessage, sizeof(errorMessage),
-              "Self test error: 0x%04X", error);
-      Serial.println(errorMessage);
-  } else if (testResult != 0xD400) {
-      snprintf(errorMessage, sizeof(errorMessage),
-              "Self test failed: 0x%04X", testResult);
-      Serial.println(errorMessage);
+  } else if (testValue != 0xD400) {
+      Serial.print("Self test failed with unexpected value: 0x");
+      Serial.println(testValue, HEX);
+      while (true) {
+          delay(1000); // Halt if self-test fails
+      }
   } else {
-      Serial.println("Self test passed successfully");
+      Serial.println("SGP41 sensor initialized successfully");
+      
+      // Get and print serial number
+      uint8_t serialNumberSize = 3;
+      uint16_t serialNumber[serialNumberSize];
+      error = sgp41.getSerialNumber(serialNumber);
+      
+      if (error) {
+          snprintf(errorMessage, sizeof(errorMessage),
+                  "Error getting serial number: 0x%04X", error);
+          Serial.println(errorMessage);
+      } else {
+          Serial.print("SerialNumber: 0x");
+          for (size_t i = 0; i < serialNumberSize; i++) {
+              uint16_t value = serialNumber[i];
+              Serial.print(value < 4096 ? "0" : "");
+              Serial.print(value < 256 ? "0" : "");
+              Serial.print(value < 16 ? "0" : "");
+              Serial.print(value, HEX);
+          }
+          Serial.println();
+      }
+      
       sensorFound = true;
       sensorType = "SGP41";
-  }
-  
-  if (!sensorFound) {
-      Serial.println("Failed to find SGP41 sensor after self-test.");
-      Serial.println("The program will continue but sensor readings will be invalid.");
   }
 
   // Set up initial baseline after 12 hours
@@ -157,6 +181,13 @@ void loop() {
     lastMeasurement = millis();
     
     if (sensorWorking) {
+      // Check I2C connection before measurement
+      if (!checkI2CConnection()) {
+        Serial.println("I2C connection lost, attempting to recover...");
+        sensorWorking = false;
+        return;
+      }
+      
       // SGP41 measurement variables
       uint16_t error;
       uint16_t srawVoc = 0;
