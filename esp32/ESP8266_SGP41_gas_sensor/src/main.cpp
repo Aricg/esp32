@@ -136,19 +136,22 @@ void loop() {
       uint16_t srawNox = 0;
       int32_t vocIndex = 0;
       int32_t noxIndex = 0;
-      char errorMessage[256];
       
-      // Measure both VOC and NOx
-      error = sgp41.measureRawSignals(srawVoc, srawNox);
+      // Use default values for humidity and temperature (50% RH, 25°C)
+      uint16_t defaultRh = 0x8000; // 50% RH in fixed point format
+      uint16_t defaultT = 0x6666;  // 25°C in fixed point format
+      
+      // Measure raw signals with default compensation
+      error = sgp41.measureRawSignals(defaultRh, defaultT, srawVoc, srawNox);
       
       if (error == 0) {
-        // Convert raw signals to indices
-        sgp41.convertRawSignalToVocIndex(srawVoc, vocIndex);
-        sgp41.convertRawSignalToNoxIndex(srawNox, noxIndex);
+        // Calculate VOC and NOx indices
+        vocIndex = srawVoc; // SGP41 raw VOC is already in index format
+        noxIndex = srawNox; // SGP41 raw NOx is already in index format
         
         // Update our global variables
         TVOC = vocIndex;
-        eCO2 = noxIndex; // Using NOx as eCO2 equivalent
+        eCO2 = noxIndex;
         
         readSuccess = true;
         
@@ -223,12 +226,10 @@ void loop() {
       }
     }
     
-    // Optional: Set humidity and temperature compensation for SGP41 (uncomment if you have temp/humidity sensor)
-    // float temperature = 22.1; // Replace with actual temperature reading
-    // float humidity = 45.2;    // Replace with actual humidity reading
-    // uint16_t defaultRh = 0x8000; // 50% relative humidity as default
-    // uint16_t defaultT = 0x6666;  // 25°C as default
-    // sgp41.setCompensationValues(defaultRh, defaultT);
+    // Optional: Replace default humidity and temperature values with actual sensor readings
+    // To convert float values to fixed-point format for the SGP41:
+    // uint16_t rhForSgp41 = uint16_t(humidity * 65535 / 100); // Convert from % to ticks
+    // uint16_t tempForSgp41 = uint16_t((temperature + 45) * 65535 / 175); // Convert from °C to ticks
   }
   
   // Perform periodic maintenance every hour
