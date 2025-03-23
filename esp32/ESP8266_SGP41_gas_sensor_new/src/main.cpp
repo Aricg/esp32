@@ -20,10 +20,14 @@ void scanI2C() {
 
     if (error == 0) {
       Serial.print("I2C device found at address 0x");
-      if (address < 16)
-        Serial.print("0");
+      if (address < 16) Serial.print("0");
       Serial.print(address, HEX);
-      Serial.println();
+      Serial.print(" (");
+      switch (address) {
+        case 0x59: Serial.println("SGP41)"); break;
+        case 0x62: Serial.println("Unknown device - NOT SGP41)"); break;
+        default: Serial.println("Unknown device)"); break;
+      }
       nDevices++;
     }
   }
@@ -55,9 +59,23 @@ void setup() {
   Serial.println("Waiting for sensor to initialize...");
   delay(2000);
 
-  // Initialize SGP41 (begin() doesn't return a value)
+  // Initialize SGP41 
   sgp41.begin(Wire);
-  Serial.println("SGP41 initialized successfully");
+  
+  // Check if we can communicate with the sensor at the correct address
+  Wire.beginTransmission(0x59);
+  if (Wire.endTransmission() == 0) {
+    Serial.println("SGP41 found at correct address (0x59) and initialized");
+  } else {
+    Serial.println("WARNING: SGP41 not found at expected address 0x59!");
+    Serial.println("Check your wiring connections:");
+    Serial.println("- SDA on sensor to D2 (GPIO4) on ESP8266");
+    Serial.println("- SCL on sensor to D1 (GPIO5) on ESP8266");
+    Serial.println("- VCC on sensor to 3.3V (NOT 5V) on ESP8266");
+    Serial.println("- GND on sensor to GND on ESP8266");
+    Serial.println("- Check for proper pull-up resistors (4.7kΩ) on SDA and SCL");
+    delay(1000);
+  }
   
   // Error handling for subsequent operations
   uint16_t error;
