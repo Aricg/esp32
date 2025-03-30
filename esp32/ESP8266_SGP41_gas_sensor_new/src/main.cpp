@@ -168,11 +168,17 @@ void loop() {
     Serial.print("Error reading measurement: ");
     errorToString(error, errorMessage, 256);
     Serial.println(errorMessage);
-  } else if (co2 == 0) {
-    Serial.println("Invalid CO2 reading (0 ppm), sensor might still be stabilizing.");
   } else {
-    // Print results
-    Serial.print("CO2:");
+    // Print results regardless of CO2 value for debugging stabilization
+    if (co2 == 0) {
+        Serial.print("CO2: 0 ppm (Stabilizing?)");
+    } else {
+        Serial.print("CO2:");
+        Serial.print(co2);
+        Serial.print("ppm");
+    }
+    Serial.print("\t");
+    Serial.print("Temperature:");
     Serial.print(co2);
     Serial.print("ppm\t");
     Serial.print("Temperature:");
