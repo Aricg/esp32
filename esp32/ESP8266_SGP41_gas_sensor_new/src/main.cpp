@@ -1,13 +1,14 @@
 #include <Arduino.h>
-#include <SensirionI2CSgp41.h>
+#include <SensirionI2CScd4x.h> // Use SCD4x library
 #include <Wire.h>
 
 // Define pins for ESP8266 I2C
 #define SDA_PIN D2  // GPIO4
 #define SCL_PIN D1  // GPIO5
 
-SensirionI2CSgp41 sgp41;
-uint16_t conditioning_s = 10; // Initial conditioning phase in seconds
+SensirionI2CScd4x scd4x; // Create an SCD4x sensor object
+uint16_t error;         // Variable to store errors
+char errorMessage[256]; // Buffer for error messages
 
 void scanI2C() {
   Serial.println("Scanning I2C bus...");
@@ -23,10 +24,10 @@ void scanI2C() {
       if (address < 16) Serial.print("0");
       Serial.print(address, HEX);
       Serial.print(" (");
-      if (address == 0x59) {
-        Serial.println("Expected SGP41)");
-      } else if (address == 0x62) {
-        Serial.println("Detected 0x62 - THIS IS NOT THE EXPECTED SGP41 ADDRESS!)");
+      if (address == 0x62) { // SCD4x address
+        Serial.println("Expected SCD4x)");
+      } else if (address == 0x59) {
+        Serial.println("Detected 0x59 - THIS IS NOT THE EXPECTED SCD4x ADDRESS!)");
       } else {
          Serial.println("Unknown device)");
       }
@@ -53,7 +54,7 @@ void setup() {
   Serial.begin(115200);
   delay(2000); // Give time for the serial monitor to connect
 
-  Serial.println("\nESP8266 SGP41 Gas Sensor Test");
+  Serial.println("\nESP8266 SCD4x (SCD40/SCD41) CO2 Sensor Test"); // Updated title
 
   // Initialize I2C with proper pins for ESP8266
   Wire.begin(SDA_PIN, SCL_PIN);
@@ -64,117 +65,113 @@ void setup() {
 
   // Give sensor extra time to power up
   Serial.println("Waiting for sensor to initialize...");
-  delay(1000); // Reduced delay slightly
+  delay(1000); 
 
-  // Initialize SGP41 
-  sgp41.begin(Wire);
-  
-  // Check if we can communicate with the SGP41 at its expected address
-  bool sgp41_found = false;
-  Wire.beginTransmission(0x59); // SGP41 Address
+  // Initialize SCD4x library
+  scd4x.begin(Wire);
+
+  // Check if we can communicate with the SCD4x at its expected address
+  bool scd4x_found = false;
+  Wire.beginTransmission(0x62); // SCD4x Address
   if (Wire.endTransmission() == 0) {
-    Serial.println("Communication successful with device at expected SGP41 address 0x59.");
-    sgp41_found = true;
+    Serial.println("Communication successful with device at expected SCD4x address 0x62.");
+    scd4x_found = true;
   } else {
-    Serial.println("ERROR: Failed to communicate with device at expected SGP41 address 0x59!");
+    Serial.println("ERROR: Failed to communicate with device at expected SCD4x address 0x62!");
     Serial.println("-> Please RE-VERIFY the physical sensor type and ALL wiring connections:");
-    Serial.println("   - SENSOR TYPE: Ensure it is truly an SGP41.");
+    Serial.println("   - SENSOR TYPE: Ensure it is an SCD40 or SCD41.");
     Serial.println("   - SDA: Sensor SDA to ESP8266 D2 (GPIO4)");
     Serial.println("   - SCL: Sensor SCL to ESP8266 D1 (GPIO5)");
-    Serial.println("   - VCC: Sensor VCC to ESP8266 3.3V (MUST be 3.3V, NOT 5V!)");
+    Serial.println("   - VCC: Sensor VCC to ESP8266 3.3V (Check sensor datasheet, SCD4x often supports 2.4-5.5V)");
     Serial.println("   - GND: Sensor GND to ESP8266 GND");
     Serial.println("   - PULL-UPS: Ensure 4.7kOhm pull-up resistors are present on SDA and SCL lines to 3.3V.");
-    Serial.println("-> The I2C scan detected a device at 0x62, which is NOT the SGP41.");
-    Serial.println("   Continuing initialization attempt, but errors are expected.");
+    Serial.println("-> The I2C scan might have detected other devices if present.");
+    Serial.println("   Continuing initialization attempt, but errors are expected if 0x62 is not the SCD4x.");
     delay(5000); // Pause to allow reading the error
   }
 
-  // Initialize SGP41 library (will use address 0x59 internally)
-  sgp41.begin(Wire);
+  // Stop potentially previously running measurement
+  error = scd4x.stopPeriodicMeasurement();
+  if (error) {
+    Serial.print("Error stopping periodic measurement: ");
+    errorToString(error, errorMessage, 256);
+    Serial.println(errorMessage);
+  }
+  delay(500); // Wait for sensor command processing
 
-  // Only proceed with detailed checks if communication at 0x59 was initially successful
-  if (sgp41_found) {
-      uint16_t error;
-  char errorMessage[256];
-  
-  // Get and print serial number
-  uint16_t serialNumber[3];
-    error = sgp41.getSerialNumber(serialNumber);
+  // Only proceed if communication at 0x62 was initially successful
+  if (scd4x_found) {
+    // Get and print serial number
+    uint16_t serialNumber[3];
+    error = scd4x.getSerialNumber(serialNumber[0], serialNumber[1], serialNumber[2]);
     if (error) {
       Serial.print("Error getting serial number: ");
       errorToString(error, errorMessage, 256);
       Serial.println(errorMessage);
     } else {
       Serial.print("SerialNumber: 0x");
-      for (size_t i = 0; i < 3; i++) {
-        Serial.print(serialNumber[i], HEX);
-      }
-      Serial.println();
+      Serial.print(serialNumber[0], HEX);
+      Serial.print(serialNumber[1], HEX);
+      Serial.println(serialNumber[2], HEX);
     }
-    
-    // Execute self test
-    uint16_t testResult;
-    error = sgp41.executeSelfTest(testResult);
+
+    // Start Measurement
+    error = scd4x.startPeriodicMeasurement();
     if (error) {
-      Serial.print("Error in self test: ");
+      Serial.print("Error starting periodic measurement: ");
       errorToString(error, errorMessage, 256);
       Serial.println(errorMessage);
-    } else if (testResult != 0xD400) {
-      Serial.print("Self test failed with error: ");
-      Serial.println(testResult, HEX);
     } else {
-      Serial.println("Self test passed");
+      Serial.println("Periodic measurement started.");
     }
   } else {
-     Serial.println("Skipping Serial Number check and Self Test due to communication failure at 0x59.");
+     Serial.println("Skipping Sensor Initialization (Serial Number, Measurement Start) due to communication failure at 0x62.");
   }
 
-  Serial.println("Initial conditioning phase starting (will likely fail if communication error persists)...");
+  Serial.println("Waiting for first measurement... (takes approx. 5 seconds)");
 }
 
 void loop() {
-  static uint8_t failCount = 0;
-  const uint8_t maxFails = 5;
+  // Wait 5 seconds between measurements (as recommended by datasheet)
+  delay(5000);
 
-  uint16_t error;
-  char errorMessage[256];
-  uint16_t defaultRh = 0x8000; // 50% RH
-  uint16_t defaultT = 0x6666;  // 25°C
-  uint16_t srawVoc = 0;
-  uint16_t srawNox = 0;
+  uint16_t co2 = 0;
+  float temperature = 0.0f;
+  float humidity = 0.0f;
+  bool isDataReady = false;
 
-  delay(1000);
-
-  if (conditioning_s > 0) {
-    Serial.print("Conditioning: ");
-    Serial.print(conditioning_s);
-    Serial.println(" seconds remaining");
-
-    error = sgp41.executeConditioning(defaultRh, defaultT, srawVoc);
-    conditioning_s--;
-  } else {
-    error = sgp41.measureRawSignals(defaultRh, defaultT, srawVoc, srawNox);
-  }
-
+  // Check if data is ready
+  error = scd4x.getDataReadyStatus(isDataReady);
   if (error) {
-    Serial.print("Error executing measurement: ");
+    Serial.print("Error checking data ready status: ");
     errorToString(error, errorMessage, 256);
     Serial.println(errorMessage);
+    return; // Skip measurement if error
+  }
 
-    failCount++;
-    if (failCount >= maxFails) {
-      Serial.println("Too many failures, rescanning I2C bus...");
-      scanI2C();
-      failCount = 0;
-    }
+  if (!isDataReady) {
+    // Serial.println("Data not ready yet."); // Optional: uncomment for debugging
+    return; // No new data available
+  }
+
+  // Read measurement data
+  error = scd4x.readMeasurement(co2, temperature, humidity);
+  if (error) {
+    Serial.print("Error reading measurement: ");
+    errorToString(error, errorMessage, 256);
+    Serial.println(errorMessage);
+  } else if (co2 == 0) {
+    Serial.println("Invalid CO2 reading (0 ppm), sensor might still be stabilizing.");
   } else {
-    failCount = 0;
-    if (conditioning_s <= 0) {
-      Serial.print("SRAW_VOC: ");
-      Serial.print(srawVoc);
-      Serial.print("\t");
-      Serial.print("SRAW_NOx: ");
-      Serial.println(srawNox);
-    }
+    // Print results
+    Serial.print("CO2:");
+    Serial.print(co2);
+    Serial.print("ppm\t");
+    Serial.print("Temperature:");
+    Serial.print(temperature, 1); // Print with 1 decimal place
+    Serial.print("°C\t");
+    Serial.print("Humidity:");
+    Serial.print(humidity, 1); // Print with 1 decimal place
+    Serial.println("%RH");
   }
 }
