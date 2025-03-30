@@ -24,7 +24,7 @@ unsigned long lastPostTime = 0;
 
 // Function prototypes
 void connectToWiFi();
-void sendAllSensorData(uint16_t co2, float temperature, float humidity);
+void sendSensorData(const char* sensorName, float sensorValue); // Updated prototype
 
 void scanI2C() {
   Serial.println("Scanning I2C bus...");
@@ -222,12 +222,11 @@ void loop() {
     // Send data to server periodically
     if (millis() - lastPostTime > postInterval) {
       lastPostTime = millis();
-      // Only send if CO2 reading is valid (not 0 during stabilization)
-      if (co2 > 0) {
-          sendAllSensorData(co2, temperature, humidity);
-      } else {
-          Serial.println("Skipping data post: CO2 is 0 (stabilizing).");
-      }
+      // Send each metric separately, even if CO2 is 0
+      sendSensorData("CO2", (float)co2); // Cast co2 (uint16_t) to float for the function
+      sendSensorData("Temperature", temperature);
+      sendSensorData("Humidity", humidity);
+      Serial.println("Sensor data sent to server.");
     }
   }
 
@@ -235,26 +234,23 @@ void loop() {
   yield();
 }
 
-// Function to send all sensor data to the metrics server in one JSON payload
-void sendAllSensorData(uint16_t co2, float temperature, float humidity) {
+// Function to send a single sensor reading to the metrics server
+void sendSensorData(const char* sensorName, float sensorValue) {
   if (WiFi.status() == WL_CONNECTED) {
     WiFiClient client;
     HTTPClient http;
 
     // Configure the request
-    Serial.print("Connecting to server: ");
-    Serial.println(serverUrl);
+    // Serial.print("Connecting to server: "); // Reduce serial noise
+    // Serial.println(serverUrl);
     http.begin(client, serverUrl);
     http.addHeader("Content-Type", "application/json");
 
-    // Create JSON payload
-    // Note: ESP8266 ArduinoJSON library is not included by default,
-    // so we construct the JSON string manually.
-    // For more complex JSON, consider adding the ArduinoJson library.
+    // Create JSON payload for a single metric
     String payload = "{";
-    payload += "\"co2\": " + String(co2) + ",";
-    payload += "\"temperature\": " + String(temperature, 1) + ","; // Send with 1 decimal place
-    payload += "\"humidity\": " + String(humidity, 1);             // Send with 1 decimal place
+    payload += "\"sensor_name\": \"" + String(sensorName) + "\",";
+    // Format float value with 1 decimal place
+    payload += "\"sensor_value\": " + String(sensorValue, 1);
     payload += "}";
 
     Serial.print("Sending payload: ");
@@ -265,15 +261,16 @@ void sendAllSensorData(uint16_t co2, float temperature, float humidity) {
 
     // Check response
     if (httpResponseCode > 0) {
-      String response = http.getString();
+      // String response = http.getString(); // Read response only if needed
       Serial.print("HTTP Response code: ");
       Serial.println(httpResponseCode);
-      // Serial.println(response); // Uncomment to see full server response
+      // Serial.println(response);
     } else {
-      Serial.print("Error on sending POST: ");
+      Serial.print("Error on sending POST for ");
+      Serial.print(sensorName);
+      Serial.print(": ");
       Serial.println(httpResponseCode);
-      // Print detailed error
-       Serial.printf("[HTTP] POST... failed, error: %s\n", http.errorToString(httpResponseCode).c_str());
+      Serial.printf("[HTTP] POST... failed, error: %s\n", http.errorToString(httpResponseCode).c_str());
     }
 
     // Free resources
