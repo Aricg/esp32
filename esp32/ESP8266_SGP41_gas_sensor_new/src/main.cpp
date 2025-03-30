@@ -6,7 +6,7 @@
 #define SDA_PIN D2  // GPIO4
 #define SCL_PIN D1  // GPIO5
 
-SensirionI2CScd4x scd4x; // Create an SCD4x sensor object
+SensirionI2cScd4x scd4x; // Create an SCD4x sensor object (Corrected class name)
 uint16_t error;         // Variable to store errors
 char errorMessage[256]; // Buffer for error messages
 
