@@ -179,9 +179,6 @@ void loop() {
     }
     Serial.print("\t");
     Serial.print("Temperature:");
-    Serial.print(co2);
-    Serial.print("ppm\t");
-    Serial.print("Temperature:");
     Serial.print(temperature, 1); // Print with 1 decimal place
     Serial.print("°C\t");
     Serial.print("Humidity:");
