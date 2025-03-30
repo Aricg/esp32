@@ -1,6 +1,9 @@
 #include <Arduino.h>
 #include <SensirionI2CScd4x.h> // Use SCD4x library
 #include <Wire.h>
+#include <ESP8266WiFi.h>       // For WiFi connectivity
+#include <ESP8266HTTPClient.h> // For making HTTP requests
+#include <WiFiClient.h>        // Required for HTTPClient
 
 // Define pins for ESP8266 I2C
 #define SDA_PIN D2  // GPIO4
@@ -9,6 +12,19 @@
 SensirionI2cScd4x scd4x; // Create an SCD4x sensor object (Corrected class name)
 uint16_t error;         // Variable to store errors
 char errorMessage[256]; // Buffer for error messages
+
+// WiFi credentials (set via build flags)
+const char* ssid = WIFI_SSID;
+const char* password = WIFI_PASSWORD;
+
+// Web server configuration
+const char* serverUrl = "http://192.168.88.126:5000/data";
+const unsigned long postInterval = 10000; // Post data every 10 seconds
+unsigned long lastPostTime = 0;
+
+// Function prototypes
+void connectToWiFi();
+void sendAllSensorData(uint16_t co2, float temperature, float humidity);
 
 void scanI2C() {
   Serial.println("Scanning I2C bus...");
@@ -137,7 +153,25 @@ void setup() {
   }
 
   Serial.println("Waiting for first measurement... (takes approx. 5 seconds)");
+
+  // Connect to WiFi
+  connectToWiFi();
 }
+
+// Function to connect to WiFi
+void connectToWiFi() {
+  Serial.print("Connecting to WiFi: ");
+  Serial.println(ssid);
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("\nWiFi connected!");
+  Serial.print("IP address: ");
+  Serial.println(WiFi.localIP());
+}
+
 
 void loop() {
   // Wait 5 seconds between measurements (as recommended by datasheet)
@@ -184,5 +218,69 @@ void loop() {
     Serial.print("Humidity:");
     Serial.print(humidity, 1); // Print with 1 decimal place
     Serial.println("%RH");
+
+    // Send data to server periodically
+    if (millis() - lastPostTime > postInterval) {
+      lastPostTime = millis();
+      // Only send if CO2 reading is valid (not 0 during stabilization)
+      if (co2 > 0) {
+          sendAllSensorData(co2, temperature, humidity);
+      } else {
+          Serial.println("Skipping data post: CO2 is 0 (stabilizing).");
+      }
+    }
+  }
+
+  // Yield to allow background processes (like WiFi) to run
+  yield();
+}
+
+// Function to send all sensor data to the metrics server in one JSON payload
+void sendAllSensorData(uint16_t co2, float temperature, float humidity) {
+  if (WiFi.status() == WL_CONNECTED) {
+    WiFiClient client;
+    HTTPClient http;
+
+    // Configure the request
+    Serial.print("Connecting to server: ");
+    Serial.println(serverUrl);
+    http.begin(client, serverUrl);
+    http.addHeader("Content-Type", "application/json");
+
+    // Create JSON payload
+    // Note: ESP8266 ArduinoJSON library is not included by default,
+    // so we construct the JSON string manually.
+    // For more complex JSON, consider adding the ArduinoJson library.
+    String payload = "{";
+    payload += "\"co2\": " + String(co2) + ",";
+    payload += "\"temperature\": " + String(temperature, 1) + ","; // Send with 1 decimal place
+    payload += "\"humidity\": " + String(humidity, 1);             // Send with 1 decimal place
+    payload += "}";
+
+    Serial.print("Sending payload: ");
+    Serial.println(payload);
+
+    // Send the request
+    int httpResponseCode = http.POST(payload);
+
+    // Check response
+    if (httpResponseCode > 0) {
+      String response = http.getString();
+      Serial.print("HTTP Response code: ");
+      Serial.println(httpResponseCode);
+      // Serial.println(response); // Uncomment to see full server response
+    } else {
+      Serial.print("Error on sending POST: ");
+      Serial.println(httpResponseCode);
+      // Print detailed error
+       Serial.printf("[HTTP] POST... failed, error: %s\n", http.errorToString(httpResponseCode).c_str());
+    }
+
+    // Free resources
+    http.end();
+  } else {
+    Serial.println("WiFi not connected, cannot send data.");
+    // Optional: try to reconnect?
+    // connectToWiFi(); // Be careful about blocking the loop here
   }
 }
