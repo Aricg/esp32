@@ -67,8 +67,8 @@ void setup() {
   Serial.println("Waiting for sensor to initialize...");
   delay(1000); 
 
-  // Initialize SCD4x library
-  scd4x.begin(Wire);
+  // Initialize SCD4x library, providing the I2C address
+  scd4x.begin(Wire, 0x62); // Pass Wire object and the I2C address
 
   // Check if we can communicate with the SCD4x at its expected address
   bool scd4x_found = false;
@@ -102,17 +102,25 @@ void setup() {
   // Only proceed if communication at 0x62 was initially successful
   if (scd4x_found) {
     // Get and print serial number
-    uint16_t serialNumber[3];
-    error = scd4x.getSerialNumber(serialNumber[0], serialNumber[1], serialNumber[2]);
+    uint64_t serialNumber; // Use uint64_t for the serial number
+    error = scd4x.getSerialNumber(serialNumber); // Pass the single variable
     if (error) {
       Serial.print("Error getting serial number: ");
       errorToString(error, errorMessage, 256);
       Serial.println(errorMessage);
     } else {
       Serial.print("SerialNumber: 0x");
-      Serial.print(serialNumber[0], HEX);
-      Serial.print(serialNumber[1], HEX);
-      Serial.println(serialNumber[2], HEX);
+      // Print the 64-bit hex value. Need to print high and low parts separately for ESP8266 Serial.print
+      uint32_t high = (uint32_t)(serialNumber >> 32);
+      uint32_t low = (uint32_t)(serialNumber & 0xFFFFFFFF);
+      if (high > 0) { // Only print high part if it's not zero
+          Serial.print(high, HEX);
+      }
+      // Pad the low part with leading zeros if necessary
+      char lowStr[9];
+      sprintf(lowStr, "%08X", low); // Format as 8-digit hex
+      Serial.print(lowStr);
+      Serial.println();
     }
 
     // Start Measurement
