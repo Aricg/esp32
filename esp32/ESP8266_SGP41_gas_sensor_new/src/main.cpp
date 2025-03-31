@@ -160,9 +160,21 @@ void setup() {
       Serial.println(errorMessage);
     } else {
       Serial.println("Periodic measurement started.");
+
+      // Disable Automatic Self-Calibration (ASC)
+      Serial.println("Disabling Automatic Self-Calibration (ASC)...");
+      error = scd4x.setAutomaticSelfCalibration(false); // Pass 'false' to disable
+      if (error) {
+          Serial.print("Error disabling ASC: ");
+          errorToString(error, errorMessage, 256);
+          Serial.println(errorMessage);
+      } else {
+          Serial.println("ASC disabled successfully.");
+      }
+      delay(100); // Wait a bit after command
     }
   } else {
-     Serial.println("Skipping Sensor Initialization (Serial Number, Measurement Start) due to communication failure at 0x62.");
+     Serial.println("Skipping Sensor Initialization (Serial Number, Measurement Start, ASC) due to communication failure at 0x62.");
   }
 
   Serial.println("Waiting for first measurement... (takes approx. 5 seconds)");
@@ -228,7 +240,11 @@ void loop() {
     Serial.println("Measurement read successfully.");
     // Print results regardless of CO2 value for debugging stabilization
     if (co2 == 0) {
-        Serial.print("CO2: 0 ppm (Stabilizing?)");
+        if (sensorStabilized) {
+             Serial.print("CO2: 0 ppm (Warning: Reading 0 after stabilization!)");
+        } else {
+             Serial.print("CO2: 0 ppm (Stabilizing?)");
+        }
     } else {
         Serial.print("CO2:");
         Serial.print(co2);
