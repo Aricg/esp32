@@ -203,10 +203,16 @@ void loop() {
   Serial.println("Sensor data ready. Reading measurement...");
   error = scd4x.readMeasurement(co2, temperature, humidity);
   if (error) {
-    Serial.print("Error reading measurement: ");
+    Serial.print("Error reading measurement. Code: ");
+    Serial.print(error);
+    Serial.print(" Message: ");
     errorToString(error, errorMessage, 256);
     Serial.println(errorMessage);
+    // Note: We might still attempt to post old data if postInterval is met below,
+    // depending on desired behavior. Current logic proceeds. Consider adding 'return;' here
+    // if you want to skip posting entirely on read error.
   } else {
+    Serial.println("Measurement read successfully.");
     // Print results regardless of CO2 value for debugging stabilization
     if (co2 == 0) {
         Serial.print("CO2: 0 ppm (Stabilizing?)");
