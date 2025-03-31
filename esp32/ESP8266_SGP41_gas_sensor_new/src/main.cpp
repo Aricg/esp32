@@ -26,6 +26,9 @@ unsigned long lastPostTime = 0;
 void connectToWiFi();
 void sendSensorData(const char* sensorName, float sensorValue); // Updated prototype
 
+// Flag to track sensor stabilization
+bool sensorStabilized = false;
+
 void scanI2C() {
   Serial.println("Scanning I2C bus...");
   byte error, address;
@@ -229,14 +232,22 @@ void loop() {
     Serial.print(humidity, 1); // Print with 1 decimal place
     Serial.println("%RH");
 
-    // Send data to server periodically
-    if (millis() - lastPostTime > postInterval) {
+    // Check if sensor has provided its first valid reading
+    if (!sensorStabilized && co2 > 0) {
+        sensorStabilized = true;
+        Serial.println("Sensor stabilized: First valid CO2 reading received.");
+    }
+
+    // Send data to server periodically ONLY after stabilization
+    if (sensorStabilized && (millis() - lastPostTime > postInterval)) {
       lastPostTime = millis();
-      // Send each metric separately, even if CO2 is 0
+      // Send each metric separately
       sendSensorData("CO2", (float)co2); // Cast co2 (uint16_t) to float for the function
       sendSensorData("Temperature", temperature);
       sendSensorData("Humidity", humidity);
       Serial.println("Sensor data sent to server.");
+    } else if (!sensorStabilized) {
+      Serial.println("Sensor not yet stabilized, skipping data send.");
     }
   }
 
