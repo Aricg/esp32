@@ -183,20 +183,24 @@ void loop() {
   bool isDataReady = false;
 
   // Check if data is ready
+  Serial.println("Checking if sensor data is ready...");
   error = scd4x.getDataReadyStatus(isDataReady);
   if (error) {
-    Serial.print("Error checking data ready status: ");
+    Serial.print("Error checking data ready status. Code: ");
+    Serial.print(error);
+    Serial.print(" Message: ");
     errorToString(error, errorMessage, 256);
     Serial.println(errorMessage);
     return; // Skip measurement if error
   }
 
   if (!isDataReady) {
-    // Serial.println("Data not ready yet."); // Optional: uncomment for debugging
+     Serial.println("Sensor data not ready yet. Skipping read attempt.");
     return; // No new data available
   }
 
-  // Read measurement data
+  // Data is ready, attempt to read measurement
+  Serial.println("Sensor data ready. Reading measurement...");
   error = scd4x.readMeasurement(co2, temperature, humidity);
   if (error) {
     Serial.print("Error reading measurement: ");
