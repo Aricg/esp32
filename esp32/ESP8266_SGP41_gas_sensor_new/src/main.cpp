@@ -89,6 +89,16 @@ void setup() {
   // Initialize SCD4x library, providing the I2C address
   scd4x.begin(Wire, 0x62); // Pass Wire object and the I2C address
 
+  // Perform a soft reset to ensure a clean state
+  Serial.println("Performing sensor soft reset...");
+  error = scd4x.softReset();
+  if (error) {
+      Serial.print("Error during soft reset: ");
+      errorToString(error, errorMessage, 256);
+      Serial.println(errorMessage);
+  }
+  delay(100); // Wait a bit after reset
+
   // Check if we can communicate with the SCD4x at its expected address
   bool scd4x_found = false;
   Wire.beginTransmission(0x62); // SCD4x Address
