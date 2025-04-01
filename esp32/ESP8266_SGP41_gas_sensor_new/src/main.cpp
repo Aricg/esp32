@@ -192,8 +192,8 @@ void connectToWiFi() {
 
 
 void loop() {
-  // Wait 5 seconds between measurements (as recommended by datasheet)
-  delay(5000);
+  // Wait slightly longer than the 5-second sensor interval to ensure data readiness
+  delay(6000); 
 
   uint16_t co2 = 0;
   float temperature = 0.0f;
