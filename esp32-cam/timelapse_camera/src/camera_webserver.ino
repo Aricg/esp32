@@ -132,8 +132,13 @@ void setup() {
   config.pin_pwdn = PWDN_GPIO_NUM;
   config.pin_reset = RESET_GPIO_NUM;
   config.xclk_freq_hz = 20000000;
-  //config.frame_size = FRAMESIZE_UXGA; 
-  config.frame_size = FRAMESIZE_VGA;
+  // Available resolutions for OV2640:
+  // FRAMESIZE_UXGA (1600x1200) - Highest quality, slower
+  // FRAMESIZE_SXGA (1280x1024)
+  // FRAMESIZE_XGA (1024x768)
+  // FRAMESIZE_SVGA (800x600) - Good balance of quality and performance
+  // FRAMESIZE_VGA (640x480) - Lower quality, faster
+  config.frame_size = FRAMESIZE_SVGA; // 800x600 resolution
   config.pixel_format = PIXFORMAT_RGB565; 
   config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
   config.fb_location = CAMERA_FB_IN_PSRAM;
