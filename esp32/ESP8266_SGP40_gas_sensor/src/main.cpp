@@ -153,22 +153,15 @@ void loop() {
               // Map 20000-40000 to 0-500
               voc_index = map(raw_reading, 20000, 40000, 0, 500);
             }
-            TVOC = voc_index; // For SGP40, TVOC is represented by the VOC Index
-
-            // Convert VOC index to approximate eCO2 (very rough estimate)
-            if (voc_index < 100) {
-              eCO2 = 400 + voc_index; // Minimal CO2 increase for good air
-            } else {
-              eCO2 = 500 + (voc_index - 100) * 5; // More aggressive scaling for poor air
-            }
+            TVOC = voc_index; // For SGP40, use TVOC variable to store the calculated VOC Index
+            // eCO2 = 0; // SGP40 does not measure eCO2, ensure it's not carrying an old value if needed, though sending logic prevents it.
             readSuccess = true;
 
             // Print readings every 5 seconds to reduce serial traffic
             if (millis() - printInterval > 5000) {
                 printInterval = millis();
                 Serial.print("SGP40 Reading -> Raw: "); Serial.print(raw_reading);
-                Serial.print(", VOC Index: "); Serial.print(TVOC); // TVOC holds voc_index here
-                Serial.print(", Approx eCO2: "); Serial.print(eCO2); Serial.println(" ppm");
+                Serial.print(", VOC Index: "); Serial.println(TVOC); // TVOC holds voc_index here
             }
         }
     } else {
@@ -204,22 +197,26 @@ void loop() {
     lastPostTime = millis();
 
     // Only send if a sensor is initialized and last read was successful
-    if ((isSGP30 || isSGP40) && readSuccess) {
-      Serial.print("Sending data: TVOC=");
-      Serial.print(TVOC);
-      Serial.print(", eCO2=");
-      Serial.println(eCO2);
-
-      // Send TVOC data
-      sendSensorData("TVOC", TVOC);
-
-      // Send eCO2 data
-      sendSensorData("eCO2", eCO2);
-
-      // Serial.println("Data sent to metrics server"); // Already printed in sendSensorData response handling
+    if (readSuccess) {
+        if (isSGP30) {
+            Serial.print("Sending SGP30 data: TVOC=");
+            Serial.print(TVOC);
+            Serial.print(", eCO2=");
+            Serial.println(eCO2);
+            // Send SGP30 TVOC data
+            sendSensorData("SGP30_TVOC", TVOC);
+            // Send SGP30 eCO2 data
+            sendSensorData("SGP30_eCO2", eCO2);
+        } else if (isSGP40) {
+            Serial.print("Sending SGP40 data: VOC_Index=");
+            Serial.println(TVOC); // Remember TVOC holds VOC Index for SGP40
+            // Send SGP40 VOC Index data (using the TVOC variable)
+            sendSensorData("SGP40_VOC_Index", TVOC);
+            // Do NOT send eCO2 for SGP40
+        }
     } else if (!isSGP30 && !isSGP40) {
         Serial.println("No sensor active, skipping data send.");
-    } else if (!readSuccess) {
+    } else { // Sensor is active but last read failed
         Serial.println("Last read failed, skipping data send.");
     }
   }
