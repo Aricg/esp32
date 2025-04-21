@@ -208,10 +208,10 @@ void loop() {
             // Send SGP30 eCO2 data
             sendSensorData("SGP30_eCO2", eCO2);
         } else if (isSGP40) {
-            Serial.print("Sending SGP40 data: VOC_Index=");
+            Serial.print("Sending SGP40 data: TVOC="); // Reverted label for serial output
             Serial.println(TVOC); // Remember TVOC holds VOC Index for SGP40
-            // Send SGP40 VOC Index data (using the TVOC variable)
-            sendSensorData("SGP40_VOC_Index", TVOC);
+            // Send SGP40 VOC Index data (using the TVOC variable) with the original name
+            sendSensorData("TVOC", TVOC); // Reverted sensor name for data sending
             // Do NOT send eCO2 for SGP40
         }
     } else if (!isSGP30 && !isSGP40) {
