@@ -38,6 +38,7 @@ uint16_t TVOC = 0; // Total Volatile Organic Compounds
 uint16_t eCO2 = 0;
 uint32_t lastMeasurement = 0;
 uint32_t lastBaseline = 0;
+bool readSuccess = false; // Initialize global read success flag
 
 void setup() {
   // Initialize serial communication
@@ -105,17 +106,18 @@ void loop() {
   // static uint8_t failCount = 0; // Removed unused variable
   // static bool sensorWorking = true; // Replaced by isSGP30/isSGP40 flags
   static uint32_t printInterval = 0;
-  bool readSuccess = false;
+  // bool readSuccess = false; // Moved to global scope
 
   // Measure every second
   if (millis() - lastMeasurement > 1000) {
     lastMeasurement = millis();
-    readSuccess = false; // Reset success flag for this measurement cycle
+    // readSuccess = false; // Reset success flag for this measurement cycle <-- REMOVED: Only set false on actual failure
 
     if (isSGP30) {
         // Read SGP30
         if (! sgp30.IAQmeasure()) {
           Serial.println("SGP30 Measurement failed");
+          readSuccess = false; // Set false on failure
         } else {
           TVOC = sgp30.TVOC;
           eCO2 = sgp30.eCO2;
@@ -137,6 +139,7 @@ void loop() {
 
         if (raw_reading == 0x8000) { // Check for SGP40 error code
             Serial.println("SGP40 Measurement failed (error code)");
+            readSuccess = false; // Set false on failure
         } else {
             // Process the raw reading to get a VOC index (0-500)
             // The library's example uses a fixed mapping, let's stick to that for consistency
