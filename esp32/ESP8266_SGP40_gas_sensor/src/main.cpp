@@ -19,20 +19,22 @@ const char* serverUrl = "http://192.168.88.126:5000/data";
 const unsigned long postInterval = 10000; // Post data every 10 seconds
 unsigned long lastPostTime = 0;
 
-// Create sensor object
+// Create sensor objects
 Adafruit_SGP40 sgp40;
+Adafruit_SGP30 sgp30; // Add SGP30 sensor object
 
 // Function prototypes
 void scanI2CBus();
-String detectSensorType(uint8_t address);
+// String detectSensorType(uint8_t address); // Removed unused prototype
 void sendSensorData(const char* sensorName, int sensorValue);
 
 // Global variables for sensor control
-uint8_t sensorAddress = 0x59; // SGP40 address
-String sensorType = "SGP40"; // We're focusing on SGP40 only
+uint8_t detectedSensorAddress = 0x00; // Store detected address (0 if none)
+bool isSGP30 = false; // Flag for detected sensor type
+bool isSGP40 = false; // Flag for detected sensor type
 
 // Variables to store sensor readings
-uint16_t TVOC = 0;
+uint16_t TVOC = 0; // Total Volatile Organic Compounds
 uint16_t eCO2 = 0;
 uint32_t lastMeasurement = 0;
 uint32_t lastBaseline = 0;
@@ -100,7 +102,7 @@ void setup() {
 }
 
 void loop() {
-  static uint8_t failCount = 0;
+  // static uint8_t failCount = 0; // Removed unused variable
   // static bool sensorWorking = true; // Replaced by isSGP30/isSGP40 flags
   static uint32_t printInterval = 0;
   bool readSuccess = false;
