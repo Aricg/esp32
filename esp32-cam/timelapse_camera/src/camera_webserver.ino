@@ -37,7 +37,7 @@ const int daylightOffset_sec = 0;   // adjust if you have DST
 #define WIFI_RECONNECT_INTERVAL 60000 // Try to reconnect every 60 seconds
 #define HEARTBEAT_INTERVAL 300000   // Update heartbeat file every 5 minutes
 #define AUTO_RESET_INTERVAL 86400000 // Auto reset every 24 hours (86400000 ms)
-#define FOCUS_MODE_DURATION_MS (1 * 60 * 1000) // 1 minute for focus mode
+#define FOCUS_MODE_DURATION_MS (5 * 60 * 1000) // 5 minutes for focus mode
 
 // Global camera configuration
 camera_config_t global_cam_config;
