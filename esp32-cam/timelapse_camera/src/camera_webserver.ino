@@ -5,6 +5,7 @@
 #include "SD_MMC.h"
 #include <time.h>
 #include "esp_task_wdt.h"  // For watchdog timer
+#include "esp_http_server.h" // For httpd_handle_t and httpd_stop
 
 #ifndef VERTICAL_FLIP
 #define VERTICAL_FLIP 0  // Default to false if not defined
@@ -35,15 +36,22 @@ const int daylightOffset_sec = 0;   // adjust if you have DST
 #define WIFI_RECONNECT_INTERVAL 60000 // Try to reconnect every 60 seconds
 #define HEARTBEAT_INTERVAL 300000   // Update heartbeat file every 5 minutes
 #define AUTO_RESET_INTERVAL 86400000 // Auto reset every 24 hours (86400000 ms)
+#define FOCUS_MODE_DURATION_MS (5 * 60 * 1000) // 5 minutes for focus mode
 
 // Global camera configuration
 camera_config_t global_cam_config;
 
-// Global variables for reliability
+// Global variables for reliability and focus mode
 unsigned long lastWifiCheck = 0;
 unsigned long lastHeartbeat = 0;
 unsigned long startTime = 0;
 unsigned long photosCount = 0;
+bool focusModeActive = true; // Start in focus mode
+unsigned long focusModeEndTime = 0;
+
+// HTTP server handles (defined in app_httpd.cpp)
+extern httpd_handle_t camera_httpd;
+extern httpd_handle_t stream_httpd;
 
 void startCameraServer();
 void setupLedFlash(int pin);
@@ -180,8 +188,8 @@ void setup() {
     s->set_saturation(s, -2);
   }
 
-  Serial.println("De-initializing camera after initial setup. It will be re-initialized on demand for timelapse.");
-  esp_camera_deinit();
+  // Camera remains initialized here for the web server during focus mode.
+  // It will be de-initialized when focus mode ends or if WiFi fails.
 
   // Connect to WiFi with timeout
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
@@ -211,11 +219,36 @@ void setup() {
     Serial.print("Camera Ready! Use 'http://");
     Serial.print(WiFi.localIP());
     Serial.println("' to connect");
+    focusModeActive = true; // Confirm focus mode is active
   } else {
-    Serial.println("\nOperating without WiFi connection");
+    Serial.println("\nOperating without WiFi connection. Focus mode disabled.");
+    focusModeActive = false;
+    // De-initialize camera as web server won't start and focus mode is off
+    Serial.println("De-initializing camera as WiFi connection failed.");
+    esp_camera_deinit();
   }
+  focusModeEndTime = millis() + FOCUS_MODE_DURATION_MS;
+  Serial.printf("Focus mode will be active for %lu minutes.\n", FOCUS_MODE_DURATION_MS / (60 * 1000));
 }
 
+
+void stopWebServerAndWiFi() {
+    Serial.println("Stopping web server...");
+    if (camera_httpd) {
+        httpd_stop(camera_httpd);
+        camera_httpd = NULL; // Mark as stopped
+    }
+    if (stream_httpd) {
+        httpd_stop(stream_httpd);
+        stream_httpd = NULL; // Mark as stopped
+    }
+    Serial.println("Web server stopped.");
+
+    Serial.println("Turning off WiFi...");
+    WiFi.disconnect(true); // Disconnect from the network
+    WiFi.mode(WIFI_OFF);   // Turn off WiFi radio
+    Serial.println("WiFi turned off.");
+}
 
 void setupTimeViaNTP() {
   configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
@@ -445,14 +478,23 @@ void loop() {
   // Reset watchdog timer in main loop
   esp_task_wdt_reset();
 
+  // Manage focus mode
+  if (focusModeActive && millis() >= focusModeEndTime) {
+    Serial.println("Focus mode duration elapsed.");
+    stopWebServerAndWiFi();
+    Serial.println("De-initializing camera after focus mode.");
+    esp_camera_deinit(); // De-initialize camera as web server is no longer needed
+    focusModeActive = false;
+  }
+
   // Your timelapse function at regular intervals
   if (millis() - lastTimelapse >= TIMELAPSE_INTERVAL_MS) {
     lastTimelapse = millis();
     captureAndSaveTimelapse();
   }
   
-  // Check WiFi connection periodically
-  if (millis() - lastWifiCheck >= WIFI_RECONNECT_INTERVAL) {
+  // Check WiFi connection periodically only if in focus mode
+  if (focusModeActive && millis() - lastWifiCheck >= WIFI_RECONNECT_INTERVAL) {
     lastWifiCheck = millis();
     checkWiFiConnection();
   }
