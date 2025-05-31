@@ -487,8 +487,8 @@ void loop() {
     focusModeActive = false;
   }
 
-  // Your timelapse function at regular intervals
-  if (millis() - lastTimelapse >= TIMELAPSE_INTERVAL_MS) {
+  // Your timelapse function at regular intervals, only if focus mode is NOT active
+  if (!focusModeActive && millis() - lastTimelapse >= TIMELAPSE_INTERVAL_MS) {
     lastTimelapse = millis();
     captureAndSaveTimelapse();
   }
