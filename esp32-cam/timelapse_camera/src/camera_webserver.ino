@@ -139,10 +139,10 @@ void setup() {
   // FRAMESIZE_SVGA (800x600) - Good balance of quality and performance
   // FRAMESIZE_VGA (640x480) - Lower quality, faster
   config.frame_size = FRAMESIZE_SVGA; // 800x600 resolution
-  config.pixel_format = PIXFORMAT_RGB565; 
+  config.pixel_format = PIXFORMAT_JPEG; // Set pixel format to JPEG for OV5640
   config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
   config.fb_location = CAMERA_FB_IN_PSRAM;
-  config.jpeg_quality = 12;
+  config.jpeg_quality = 12; // Lower number means higher quality (0-63)
   config.fb_count = 1;
 
   // Debugging: Initialize camera and print errors
@@ -275,10 +275,10 @@ void captureAndSaveTimelapse() {
         config.pin_reset = RESET_GPIO_NUM;
         config.xclk_freq_hz = 20000000;
         config.frame_size = FRAMESIZE_VGA;
-        config.pixel_format = PIXFORMAT_RGB565; 
+        config.pixel_format = PIXFORMAT_JPEG; // Set pixel format to JPEG for OV5640
         config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
         config.fb_location = CAMERA_FB_IN_PSRAM;
-        config.jpeg_quality = 12;
+        config.jpeg_quality = 12; // Lower number means higher quality (0-63)
         config.fb_count = 1;
         
         esp_err_t err = esp_camera_init(&config);
