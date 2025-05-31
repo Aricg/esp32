@@ -36,6 +36,9 @@ const int daylightOffset_sec = 0;   // adjust if you have DST
 #define HEARTBEAT_INTERVAL 300000   // Update heartbeat file every 5 minutes
 #define AUTO_RESET_INTERVAL 86400000 // Auto reset every 24 hours (86400000 ms)
 
+// Global camera configuration
+camera_config_t global_cam_config;
+
 // Global variables for reliability
 unsigned long lastWifiCheck = 0;
 unsigned long lastHeartbeat = 0;
@@ -112,41 +115,41 @@ void setup() {
   Serial.println("SCCB port configuration not set.");
 #endif
 
-  camera_config_t config;
-  config.ledc_channel = LEDC_CHANNEL_0;
-  config.ledc_timer = LEDC_TIMER_0;
-  config.pin_d0 = Y2_GPIO_NUM;
-  config.pin_d1 = Y3_GPIO_NUM;
-  config.pin_d2 = Y4_GPIO_NUM;
-  config.pin_d3 = Y5_GPIO_NUM;
-  config.pin_d4 = Y6_GPIO_NUM;
-  config.pin_d5 = Y7_GPIO_NUM;
-  config.pin_d6 = Y8_GPIO_NUM;
-  config.pin_d7 = Y9_GPIO_NUM;
-  config.pin_xclk = XCLK_GPIO_NUM;
-  config.pin_pclk = PCLK_GPIO_NUM;
-  config.pin_vsync = VSYNC_GPIO_NUM;
-  config.pin_href = HREF_GPIO_NUM;
-  config.pin_sccb_sda = SIOD_GPIO_NUM;
-  config.pin_sccb_scl = SIOC_GPIO_NUM;
-  config.pin_pwdn = PWDN_GPIO_NUM;
-  config.pin_reset = RESET_GPIO_NUM;
-  config.xclk_freq_hz = 20000000;
+  // camera_config_t config; // Use global_cam_config now
+  global_cam_config.ledc_channel = LEDC_CHANNEL_0;
+  global_cam_config.ledc_timer = LEDC_TIMER_0;
+  global_cam_config.pin_d0 = Y2_GPIO_NUM;
+  global_cam_config.pin_d1 = Y3_GPIO_NUM;
+  global_cam_config.pin_d2 = Y4_GPIO_NUM;
+  global_cam_config.pin_d3 = Y5_GPIO_NUM;
+  global_cam_config.pin_d4 = Y6_GPIO_NUM;
+  global_cam_config.pin_d5 = Y7_GPIO_NUM;
+  global_cam_config.pin_d6 = Y8_GPIO_NUM;
+  global_cam_config.pin_d7 = Y9_GPIO_NUM;
+  global_cam_config.pin_xclk = XCLK_GPIO_NUM;
+  global_cam_config.pin_pclk = PCLK_GPIO_NUM;
+  global_cam_config.pin_vsync = VSYNC_GPIO_NUM;
+  global_cam_config.pin_href = HREF_GPIO_NUM;
+  global_cam_config.pin_sccb_sda = SIOD_GPIO_NUM;
+  global_cam_config.pin_sccb_scl = SIOC_GPIO_NUM;
+  global_cam_config.pin_pwdn = PWDN_GPIO_NUM;
+  global_cam_config.pin_reset = RESET_GPIO_NUM;
+  global_cam_config.xclk_freq_hz = 20000000;
   // Available resolutions for OV2640:
   // FRAMESIZE_UXGA (1600x1200) - Highest quality, slower
   // FRAMESIZE_SXGA (1280x1024)
   // FRAMESIZE_XGA (1024x768)
   // FRAMESIZE_SVGA (800x600) - Good balance of quality and performance
   // FRAMESIZE_VGA (640x480) - Lower quality, faster
-  config.frame_size = FRAMESIZE_SVGA; // 800x600 resolution
-  config.pixel_format = PIXFORMAT_JPEG; // Set pixel format to JPEG for OV5640
-  config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
-  config.fb_location = CAMERA_FB_IN_PSRAM;
-  config.jpeg_quality = 12; // Lower number means higher quality (0-63)
-  config.fb_count = 1;
+  global_cam_config.frame_size = FRAMESIZE_SVGA; // 800x600 resolution
+  global_cam_config.pixel_format = PIXFORMAT_JPEG; // Set pixel format to JPEG for OV5640
+  global_cam_config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
+  global_cam_config.fb_location = CAMERA_FB_IN_PSRAM;
+  global_cam_config.jpeg_quality = 12; // Lower number means higher quality (0-63)
+  global_cam_config.fb_count = 1;
 
   // Debugging: Initialize camera and print errors
-  esp_err_t err = esp_camera_init(&config);
+  esp_err_t err = esp_camera_init(&global_cam_config);
   if (err != ESP_OK) {
     Serial.printf("Camera init failed with error 0x%x\n", err);
   if (err == ESP_ERR_CAMERA_NOT_DETECTED) {
@@ -176,6 +179,9 @@ void setup() {
     s->set_brightness(s, 1);
     s->set_saturation(s, -2);
   }
+
+  Serial.println("De-initializing camera after initial setup. It will be re-initialized on demand for timelapse.");
+  esp_camera_deinit();
 
   // Connect to WiFi with timeout
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
@@ -242,73 +248,65 @@ static const unsigned long TIMELAPSE_INTERVAL_MS = 40000;
 static unsigned long lastTimelapse = 0;
 
 void captureAndSaveTimelapse() {
+    esp_task_wdt_reset(); // Reset watchdog
+
+    Serial.println("Timelapse: Initializing camera...");
+    esp_err_t init_err = esp_camera_init(&global_cam_config);
+    if (init_err != ESP_OK) {
+        Serial.printf("Timelapse: Camera init failed with error 0x%x\n", init_err);
+        File errorLog = SD_MMC.open("/camera_errors.txt", FILE_APPEND);
+        if (errorLog) {
+            time_t now_log;
+            time(&now_log);
+            errorLog.printf("Timelapse: Camera init error at %s: 0x%x\n", ctime(&now_log), init_err);
+            errorLog.close();
+        }
+        return;
+    }
+    Serial.println("Timelapse: Camera initialized successfully.");
+
+    // Re-apply sensor settings as they might be reset after deinit/init
+    sensor_t *s = esp_camera_sensor_get();
+    if (s == NULL) {
+        Serial.println("Timelapse: Failed to get camera sensor after init.");
+        File errorLog = SD_MMC.open("/camera_errors.txt", FILE_APPEND);
+        if (errorLog) {
+            time_t now_log;
+            time(&now_log);
+            errorLog.printf("Timelapse: Failed to get sensor at %s\n", ctime(&now_log));
+            errorLog.close();
+        }
+        esp_camera_deinit(); // Deinit if sensor get fails
+        Serial.println("Timelapse: De-initialized camera due to sensor get failure.");
+        return;
+    }
+    s->set_vflip(s, VERTICAL_FLIP == 1);
+    if (s->id.PID == OV3660_PID) { // Re-apply specific sensor settings
+        s->set_brightness(s, 1);
+        s->set_saturation(s, -2);
+    }
+    Serial.println("Timelapse: Sensor settings re-applied.");
+
     bool success = false;
     esp_task_wdt_reset(); // Reset watchdog before capture
     
     // 1) Grab a frame
+    Serial.println("Timelapse: Attempting to capture frame...");
     camera_fb_t *fb = esp_camera_fb_get();
     if (!fb) {
-        Serial.println("Timelapse capture failed");
-        // If camera fails, try to reset it
-        esp_camera_deinit();
-        delay(100);
-        
-        // Reconfigure and reinitialize the camera
-        camera_config_t config;
-        config.ledc_channel = LEDC_CHANNEL_0;
-        config.ledc_timer = LEDC_TIMER_0;
-        config.pin_d0 = Y2_GPIO_NUM;
-        config.pin_d1 = Y3_GPIO_NUM;
-        config.pin_d2 = Y4_GPIO_NUM;
-        config.pin_d3 = Y5_GPIO_NUM;
-        config.pin_d4 = Y6_GPIO_NUM;
-        config.pin_d5 = Y7_GPIO_NUM;
-        config.pin_d6 = Y8_GPIO_NUM;
-        config.pin_d7 = Y9_GPIO_NUM;
-        config.pin_xclk = XCLK_GPIO_NUM;
-        config.pin_pclk = PCLK_GPIO_NUM;
-        config.pin_vsync = VSYNC_GPIO_NUM;
-        config.pin_href = HREF_GPIO_NUM;
-        config.pin_sccb_sda = SIOD_GPIO_NUM;
-        config.pin_sccb_scl = SIOC_GPIO_NUM;
-        config.pin_pwdn = PWDN_GPIO_NUM;
-        config.pin_reset = RESET_GPIO_NUM;
-        config.xclk_freq_hz = 20000000;
-        config.frame_size = FRAMESIZE_VGA;
-        config.pixel_format = PIXFORMAT_JPEG; // Set pixel format to JPEG for OV5640
-        config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
-        config.fb_location = CAMERA_FB_IN_PSRAM;
-        config.jpeg_quality = 12; // Lower number means higher quality (0-63)
-        config.fb_count = 1;
-        
-        esp_err_t err = esp_camera_init(&config);
-        if (err != ESP_OK) {
-            Serial.printf("Camera reinit failed with error 0x%x, will reboot\n", err);
-            File errorLog = SD_MMC.open("/camera_errors.txt", FILE_APPEND);
-            if (errorLog) {
-                time_t now;
-                time(&now);
-                errorLog.printf("Camera error at %s: 0x%x\n", ctime(&now), err);
-                errorLog.close();
-            }
-            delay(1000);
-            ESP.restart();
+        Serial.println("Timelapse: Frame capture failed (esp_camera_fb_get returned NULL).");
+        File errorLog = SD_MMC.open("/camera_errors.txt", FILE_APPEND);
+        if (errorLog) {
+            time_t now_log;
+            time(&now_log);
+            errorLog.printf("Timelapse: Frame capture failed at %s\n", ctime(&now_log));
+            errorLog.close();
         }
-        
-        // Try to get frame again
-        fb = esp_camera_fb_get();
-        if (!fb) {
-            Serial.println("Second capture attempt failed, logging error");
-            File errorLog = SD_MMC.open("/camera_errors.txt", FILE_APPEND);
-            if (errorLog) {
-                time_t now;
-                time(&now);
-                errorLog.printf("Persistent camera failure at %s\n", ctime(&now));
-                errorLog.close();
-            }
-            return;
-        }
+        esp_camera_deinit(); // De-initialize camera
+        Serial.println("Timelapse: De-initialized camera due to frame capture failure.");
+        return; // Exit function
     }
+    Serial.println("Timelapse: Frame captured successfully.");
 
     // 2) Convert to JPEG if needed
     size_t out_len = 0;
@@ -324,6 +322,8 @@ void captureAndSaveTimelapse() {
         if (!converted) {
             esp_camera_fb_return(fb);
             Serial.println("JPEG conversion failed");
+            esp_camera_deinit(); // De-initialize camera
+            Serial.println("Timelapse: De-initialized camera due to JPEG conversion failure.");
             return;
         }
     }
@@ -391,6 +391,9 @@ void captureAndSaveTimelapse() {
         // Also return the original frame buffer
         esp_camera_fb_return(fb);
     }
+
+    Serial.println("Timelapse: De-initializing camera after successful capture and save.");
+    esp_camera_deinit();
 }
 
 
