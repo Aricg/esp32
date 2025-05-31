@@ -6,6 +6,7 @@
 #include <time.h>
 #include "esp_task_wdt.h"  // For watchdog timer
 #include "esp_http_server.h" // For httpd_handle_t and httpd_stop
+#include "esp_sleep.h"     // For light sleep
 
 #ifndef VERTICAL_FLIP
 #define VERTICAL_FLIP 0  // Default to false if not defined
@@ -36,7 +37,7 @@ const int daylightOffset_sec = 0;   // adjust if you have DST
 #define WIFI_RECONNECT_INTERVAL 60000 // Try to reconnect every 60 seconds
 #define HEARTBEAT_INTERVAL 300000   // Update heartbeat file every 5 minutes
 #define AUTO_RESET_INTERVAL 86400000 // Auto reset every 24 hours (86400000 ms)
-#define FOCUS_MODE_DURATION_MS (5 * 60 * 1000) // 5 minutes for focus mode
+#define FOCUS_MODE_DURATION_MS (1 * 60 * 1000) // 1 minute for focus mode
 
 // Global camera configuration
 camera_config_t global_cam_config;
@@ -485,13 +486,43 @@ void loop() {
     Serial.println("De-initializing camera after focus mode.");
     esp_camera_deinit(); // De-initialize camera as web server is no longer needed
     focusModeActive = false;
+    // Ensure lastTimelapse is set so the first sleep cycle after focus mode calculates correctly
+    // or the first timelapse capture occurs promptly.
   }
 
-  // Your timelapse function at regular intervals, only if focus mode is NOT active
-  if (!focusModeActive && millis() - lastTimelapse >= TIMELAPSE_INTERVAL_MS) {
-    lastTimelapse = millis();
-    captureAndSaveTimelapse();
+  // Timelapse and Power Saving Logic (only when not in focus mode)
+  if (!focusModeActive) {
+    unsigned long current_millis = millis();
+    if (current_millis - lastTimelapse >= TIMELAPSE_INTERVAL_MS) {
+      // Time for timelapse
+      lastTimelapse = current_millis; // Update timestamp before capture
+      captureAndSaveTimelapse();
+    } else {
+      // Not time for timelapse yet, consider sleeping
+      unsigned long time_to_next_capture = (lastTimelapse + TIMELAPSE_INTERVAL_MS) - current_millis;
+      
+      // Sleep for at most (WDT_TIMEOUT_SECONDS - 5 seconds), or time_to_next_capture, whichever is smaller.
+      // This ensures WDT is reset before it expires.
+      // Subtract a safety margin (e.g., 5 seconds) from WDT_TIMEOUT_SECONDS.
+      unsigned long max_safe_sleep_ms = (unsigned long)(WDT_TIMEOUT_SECONDS > 5 ? WDT_TIMEOUT_SECONDS - 5 : WDT_TIMEOUT_SECONDS / 2) * 1000;
+      if (max_safe_sleep_ms == 0 && WDT_TIMEOUT_SECONDS > 0) max_safe_sleep_ms = WDT_TIMEOUT_SECONDS * 500; // 50% of WDT if too short
+      if (max_safe_sleep_ms == 0) max_safe_sleep_ms = 1000; // Default to 1s if WDT is 0 or extremely short
+
+
+      unsigned long sleep_duration_ms = min(time_to_next_capture, max_safe_sleep_ms);
+
+      if (sleep_duration_ms > 1000) { // Only sleep if duration is meaningful (e.g., > 1 sec)
+        Serial.printf("Light sleeping for %lu ms...\n", sleep_duration_ms);
+        esp_sleep_enable_timer_wakeup(sleep_duration_ms * 1000); // us
+        esp_light_sleep_start();
+        // Execution resumes from top of loop() after waking up, WDT will be reset.
+        // No need to manually reset WDT here as it's done at the start of loop().
+      }
+      // If sleep_duration_ms is too short, just loop normally (effectively a short busy wait).
+      // This also allows WDT to be reset by the loop() iteration.
+    }
   }
+  // End Timelapse and Power Saving Logic
   
   // Check WiFi connection periodically only if in focus mode
   if (focusModeActive && millis() - lastWifiCheck >= WIFI_RECONNECT_INTERVAL) {
