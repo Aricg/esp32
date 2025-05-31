@@ -37,7 +37,7 @@ const int daylightOffset_sec = 0;   // adjust if you have DST
 #define WIFI_RECONNECT_INTERVAL 60000 // Try to reconnect every 60 seconds
 #define HEARTBEAT_INTERVAL 300000   // Update heartbeat file every 5 minutes
 #define AUTO_RESET_INTERVAL 86400000 // Auto reset every 24 hours (86400000 ms)
-#define FOCUS_MODE_DURATION_MS (5 * 60 * 1000) // 5 minutes for focus mode
+#define FOCUS_MODE_DURATION_MS (30 * 1000) // 30 seconds for focus mode
 
 // Global camera configuration
 camera_config_t global_cam_config;
@@ -320,6 +320,22 @@ void captureAndSaveTimelapse() {
         s->set_saturation(s, -2);
     }
     Serial.println("Timelapse: Sensor settings re-applied.");
+
+    // Allow AWB (Auto White Balance) and AEC (Auto Exposure Control) to stabilize
+    Serial.println("Timelapse: Allowing AWB/AEC to stabilize...");
+    for (int i = 0; i < 3; i++) { // Discard 3 frames
+        camera_fb_t *stab_fb = esp_camera_fb_get();
+        if (!stab_fb) {
+            Serial.println("Timelapse: AWB/AEC stabilization frame capture failed.");
+            // If stabilization fails, we might still try to capture the main frame,
+            // or we could deinit and return here. For now, let's just log and continue.
+            break; 
+        }
+        esp_camera_fb_return(stab_fb); // Return frame to free buffer
+        delay(100); // Small delay to allow processing
+        esp_task_wdt_reset(); // Reset watchdog during stabilization
+    }
+    Serial.println("Timelapse: AWB/AEC stabilization complete.");
 
     bool success = false;
     esp_task_wdt_reset(); // Reset watchdog before capture
