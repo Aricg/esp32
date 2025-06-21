@@ -71,6 +71,12 @@ const char* timeZone = "EST5EDT,M3.2.0/2,M11.1.0/2";
 const long gmtOffset_sec = 0; 
 const int daylightOffset_sec = 0;
 
+// Night sleep schedule (Montreal local time)
+const int NIGHT_SLEEP_START_HOUR = 20; // 8 PM
+const int NIGHT_SLEEP_START_MINUTE = 47; // 8:47 PM
+const int NIGHT_WAKE_UP_HOUR = 5;    // 5 AM
+const int NIGHT_WAKE_UP_MINUTE = 5;   // 5:05 AM
+
 // Constants for reliability
 #define WDT_TIMEOUT_SECONDS 30      // Watchdog timeout in seconds
 #define WIFI_RECONNECT_INTERVAL 60000 // Try to reconnect every 60 seconds
@@ -621,34 +627,90 @@ void loop() {
 
   // Timelapse and Power Saving Logic (only when not in focus mode)
   if (!focusModeActive) {
+    time_t now_ts;
+    time(&now_ts);
+    bool perform_night_deep_sleep = false;
+
+    if (now_ts < 1672531200) { // Check if time is likely valid (synced, e.g., after Jan 1, 2023)
+        Serial.println("Time not synced, skipping night sleep check for this cycle.");
+    } else {
+        struct tm timeinfo;
+        localtime_r(&now_ts, &timeinfo);
+
+        int current_hour = timeinfo.tm_hour;
+        int current_minute = timeinfo.tm_min;
+        bool is_currently_night_period = false;
+
+        // Check if current time falls into the night period (e.g., 20:47 to 05:05)
+        if (current_hour > NIGHT_SLEEP_START_HOUR || (current_hour == NIGHT_SLEEP_START_HOUR && current_minute >= NIGHT_SLEEP_START_MINUTE)) {
+            is_currently_night_period = true; // It's after sleep start time today
+        } else if (current_hour < NIGHT_WAKE_UP_HOUR || (current_hour == NIGHT_WAKE_UP_HOUR && current_minute < NIGHT_WAKE_UP_MINUTE)) {
+            is_currently_night_period = true; // It's before wake up time today (past midnight)
+        }
+
+        if (is_currently_night_period) {
+            unsigned long sleep_duration_seconds = 0;
+            time_t current_epoch = mktime(&timeinfo);
+
+            // Target wake up time for today
+            struct tm wake_time_struct = timeinfo; // Copy current time structure
+            wake_time_struct.tm_hour = NIGHT_WAKE_UP_HOUR;
+            wake_time_struct.tm_min = NIGHT_WAKE_UP_MINUTE;
+            wake_time_struct.tm_sec = 0;
+            wake_time_struct.tm_isdst = -1; // Let mktime determine DST for the target wake time
+            time_t wake_epoch_target = mktime(&wake_time_struct);
+
+            if (current_epoch < wake_epoch_target) {
+                // Current time is before today's wake-up time (e.g., 3 AM, wake at 5 AM)
+                sleep_duration_seconds = wake_epoch_target - current_epoch;
+            } else {
+                // Current time is after today's wake-up time (e.g., 9 PM, wake at 5 AM tomorrow)
+                // So, calculate duration until tomorrow's wake-up time
+                wake_time_struct.tm_mday += 1; // Advance to next day
+                // mktime will normalize month/year if tm_mday overflows
+                wake_time_struct.tm_isdst = -1; // Re-evaluate DST for tomorrow
+                wake_epoch_target = mktime(&wake_time_struct);
+                sleep_duration_seconds = wake_epoch_target - current_epoch;
+            }
+
+            // Sanity check: sleep duration should be positive and less than ~24 hours
+            if (sleep_duration_seconds > 0 && sleep_duration_seconds < (25 * 3600)) { // Allow slightly over 24h for DST changes
+                Serial.printf("Night time. Deep sleeping for %lu seconds until approximately %02d:%02d.\n", sleep_duration_seconds, NIGHT_WAKE_UP_HOUR, NIGHT_WAKE_UP_MINUTE);
+                
+                File sleepLog = SD_MMC.open("/sleep_log.txt", FILE_APPEND);
+                if (sleepLog) {
+                    sleepLog.printf("Entering deep sleep at %s", ctime(&current_epoch)); // ctime adds newline
+                    sleepLog.printf("Scheduled to wake at approx. %02d:%02d. Duration: %lu s\n", NIGHT_WAKE_UP_HOUR, NIGHT_WAKE_UP_MINUTE, sleep_duration_seconds);
+                    sleepLog.close();
+                    delay(100); // Brief delay to help ensure log is written
+                }
+                esp_deep_sleep(sleep_duration_seconds * 1000000ULL); // Argument is in microseconds
+                // Note: esp_deep_sleep() does not return. The device will reset.
+            } else {
+                Serial.printf("Calculated night sleep duration (%lu s) is invalid. Proceeding with normal operation.\n", sleep_duration_seconds);
+            }
+        }
+    }
+    // If not night deep sleeping (e.g. daytime, time not synced, or invalid sleep duration), proceed with timelapse/light sleep:
     unsigned long current_millis = millis();
     if (current_millis - lastTimelapse >= TIMELAPSE_INTERVAL_MS) {
       // Time for timelapse
       lastTimelapse = current_millis; // Update timestamp before capture
       captureAndSaveTimelapse();
     } else {
-      // Not time for timelapse yet, consider sleeping
+      // Not time for timelapse yet, consider light sleeping
       unsigned long time_to_next_capture = (lastTimelapse + TIMELAPSE_INTERVAL_MS) - current_millis;
-      
-      // Sleep for at most (WDT_TIMEOUT_SECONDS - 5 seconds), or time_to_next_capture, whichever is smaller.
-      // This ensures WDT is reset before it expires.
-      // Subtract a safety margin (e.g., 5 seconds) from WDT_TIMEOUT_SECONDS.
       unsigned long max_safe_sleep_ms = (unsigned long)(WDT_TIMEOUT_SECONDS > 5 ? WDT_TIMEOUT_SECONDS - 5 : WDT_TIMEOUT_SECONDS / 2) * 1000;
-      if (max_safe_sleep_ms == 0 && WDT_TIMEOUT_SECONDS > 0) max_safe_sleep_ms = WDT_TIMEOUT_SECONDS * 500; // 50% of WDT if too short
-      if (max_safe_sleep_ms == 0) max_safe_sleep_ms = 1000; // Default to 1s if WDT is 0 or extremely short
-
+      if (max_safe_sleep_ms == 0 && WDT_TIMEOUT_SECONDS > 0) max_safe_sleep_ms = WDT_TIMEOUT_SECONDS * 500;
+      if (max_safe_sleep_ms == 0) max_safe_sleep_ms = 1000;
 
       unsigned long sleep_duration_ms = min(time_to_next_capture, max_safe_sleep_ms);
 
-      if (sleep_duration_ms > 1000) { // Only sleep if duration is meaningful (e.g., > 1 sec)
+      if (sleep_duration_ms > 1000) { 
         Serial.printf("Light sleeping for %lu ms...\n", sleep_duration_ms);
-        esp_sleep_enable_timer_wakeup(sleep_duration_ms * 1000); // us
+        esp_sleep_enable_timer_wakeup(sleep_duration_ms * 1000ULL); // us
         esp_light_sleep_start();
-        // Execution resumes from top of loop() after waking up, WDT will be reset.
-        // No need to manually reset WDT here as it's done at the start of loop().
       }
-      // If sleep_duration_ms is too short, just loop normally (effectively a short busy wait).
-      // This also allows WDT to be reset by the loop() iteration.
     }
   }
   // End Timelapse and Power Saving Logic
