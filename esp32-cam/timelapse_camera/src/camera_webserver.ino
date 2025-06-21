@@ -14,27 +14,28 @@
 
 // =======================================================================
 // Camera Model Selection
-// Please uncomment one of the following lines to select your camera model.
+// Camera Model Selection is now controlled by -DCAMERA_MODEL in platformio.ini
 // =======================================================================
-// #define CAMERA_MODEL CAMERA_MODEL_AI_THINKER
-#define CAMERA_MODEL CAMERA_MODEL_GENERIC_OV2640
 
-// Define numeric values for camera models
-#define CAMERA_MODEL_AI_THINKER 1
-#define CAMERA_MODEL_GENERIC_OV2640 2
+// Define numeric values for selection mapping
+#define _MODEL_SELECT_AI_THINKER 1
+#define _MODEL_SELECT_GENERIC_OV2640 2
 
-// Default to AI_THINKER if CAMERA_MODEL is not explicitly defined above
+// CAMERA_MODEL is expected to be defined in platformio.ini build_flags (e.g., -DCAMERA_MODEL=1)
 #ifndef CAMERA_MODEL
-  #warning "CAMERA_MODEL not defined, defaulting to CAMERA_MODEL_AI_THINKER"
-  #define CAMERA_MODEL CAMERA_MODEL_AI_THINKER
+  #error "CAMERA_MODEL is not defined in platformio.ini build_flags. Set to 1 (AI_THINKER) or 2 (GENERIC_OV2640)."
 #endif
 
-#if CAMERA_MODEL == CAMERA_MODEL_AI_THINKER
-  #pragma message "Compiling for CAMERA_MODEL_AI_THINKER"
-#elif CAMERA_MODEL == CAMERA_MODEL_GENERIC_OV2640
-  #pragma message "Compiling for CAMERA_MODEL_GENERIC_OV2640"
+// Define the appropriate model macro for camera_pins.h and for specific logic.
+// Both AI_THINKER and our GENERIC_OV2640 configuration use AI_THINKER pins.
+#if CAMERA_MODEL == _MODEL_SELECT_AI_THINKER
+  #define CAMERA_MODEL_AI_THINKER // Define this for camera_pins.h
+  #pragma message "Compiling for AI_THINKER camera model (selected via platformio.ini)"
+#elif CAMERA_MODEL == _MODEL_SELECT_GENERIC_OV2640
+  #define CAMERA_MODEL_AI_THINKER // GENERIC_OV2640 uses AI_THINKER pins
+  #pragma message "Compiling for GENERIC_OV2640 camera model (selected via platformio.ini, using AI_THINKER pins)"
 #else
-  #error "Unknown CAMERA_MODEL selected!"
+  #error "Unknown CAMERA_MODEL value in platformio.ini. Must be 1 or 2."
 #endif
 
 #include "camera_pins.h"
@@ -314,8 +315,8 @@ static unsigned long lastTimelapse = 0;
 void captureAndSaveTimelapse() {
     esp_task_wdt_reset(); // Reset watchdog
 
-#if CAMERA_MODEL == CAMERA_MODEL_GENERIC_OV2640
-    Serial.println("Timelapse (OV2640 specific): Adding pre-init delay...");
+#if CAMERA_MODEL == _MODEL_SELECT_GENERIC_OV2640
+    Serial.println("Timelapse (OV2640 specific logic): Adding pre-init delay...");
     delay(500); // Add a delay for OV2640 to stabilize, may help with init after sleep
 #endif
 
