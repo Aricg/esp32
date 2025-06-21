@@ -12,11 +12,41 @@
 #define VERTICAL_FLIP 0  // Default to false if not defined
 #endif
 
-// ===================
-// Select camera model
-// ===================
-#define CAMERA_MODEL_AI_THINKER // Has PSRAM
+// =======================================================================
+// Camera Model Selection
+// Please uncomment one of the following lines to select your camera model.
+// =======================================================================
+// #define CAMERA_MODEL CAMERA_MODEL_AI_THINKER
+// #define CAMERA_MODEL CAMERA_MODEL_GENERIC_OV2640
+
+// Define numeric values for camera models
+#define CAMERA_MODEL_AI_THINKER 1
+#define CAMERA_MODEL_GENERIC_OV2640 2
+
+// Default to AI_THINKER if CAMERA_MODEL is not explicitly defined above
+#ifndef CAMERA_MODEL
+  #warning "CAMERA_MODEL not defined, defaulting to CAMERA_MODEL_AI_THINKER"
+  #define CAMERA_MODEL CAMERA_MODEL_AI_THINKER
+#endif
+
+#if CAMERA_MODEL == CAMERA_MODEL_AI_THINKER
+  #pragma message "Compiling for CAMERA_MODEL_AI_THINKER"
+#elif CAMERA_MODEL == CAMERA_MODEL_GENERIC_OV2640
+  #pragma message "Compiling for CAMERA_MODEL_GENERIC_OV2640"
+#else
+  #error "Unknown CAMERA_MODEL selected!"
+#endif
+
 #include "camera_pins.h"
+// Note: If CAMERA_MODEL_GENERIC_OV2640 requires different pins than AI_THINKER,
+// you would need to create a separate "camera_pins_ov2640.h" (or similar)
+// and adjust the #include logic here, for example:
+// #if CAMERA_MODEL == CAMERA_MODEL_GENERIC_OV2640
+//   #include "camera_pins_ov2640.h"
+// #else
+//   #include "camera_pins.h" // For AI_THINKER and others
+// #endif
+
 
 // ===========================
 // WiFi credentials from env
@@ -283,6 +313,11 @@ static unsigned long lastTimelapse = 0;
 
 void captureAndSaveTimelapse() {
     esp_task_wdt_reset(); // Reset watchdog
+
+#if CAMERA_MODEL == CAMERA_MODEL_GENERIC_OV2640
+    Serial.println("Timelapse (OV2640 specific): Adding pre-init delay...");
+    delay(500); // Add a delay for OV2640 to stabilize, may help with init after sleep
+#endif
 
     Serial.println("Timelapse: Initializing camera...");
     esp_err_t init_err = esp_camera_init(&global_cam_config);
