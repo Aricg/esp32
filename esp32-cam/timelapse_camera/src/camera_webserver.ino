@@ -291,7 +291,13 @@ void stopWebServerAndWiFi() {
 }
 
 void setupTimeViaNTP() {
-  configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+  Serial.printf("Setting Timezone to: %s\n", timeZone);
+  setenv("TZ", timeZone, 1); // Set the TZ environment variable
+  tzset();                   // Apply the TZ setting
+
+  // When using setenv/tzset, gmtOffset_sec and daylightOffset_sec in configTime should be 0
+  // as the timezone information is now handled by the TZ environment variable.
+  configTime(0, 0, ntpServer);
   
   // Wait until time is set, but with a timeout
   time_t now = 0;
