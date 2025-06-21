@@ -438,42 +438,104 @@ void captureAndSaveTimelapse() {
 
     // 4) Write file
     File f = SD_MMC.open(filename, FILE_WRITE);
+    bool sd_operation_failed = false;
+
     if (!f) {
-        Serial.printf("Failed to open file for writing: %s\n", filename);
-        
-        // Try to remount SD card
-        SD_MMC.end();
-        delay(500);
+        Serial.printf("Failed to open file for writing: %s (Attempt 1)\n", filename);
+        sd_operation_failed = true;
+
+        SD_MMC.end(); // End current SD session
+        delay(500);   // Short delay
+        Serial.println("Attempting SD card remount...");
         if (!SD_MMC.begin("/sdcard", true)) {
-            Serial.println("SD remount failed after write error");
+            Serial.println("SD remount failed.");
             File errorLog = SD_MMC.open("/sd_errors.txt", FILE_APPEND);
             if (errorLog) {
-                errorLog.printf("SD write error at %s\n", ctime(&now));
+                time_t now_log; time(&now_log);
+                errorLog.printf("SD remount failed at %s for file %s\n", ctime(&now_log), filename);
                 errorLog.close();
             }
+            // f remains NULL, sd_operation_failed is true
         } else {
-            // Try again after remount
-            f = SD_MMC.open(filename, FILE_WRITE);
+            Serial.println("SD remount successful. Retrying file open...");
+            f = SD_MMC.open(filename, FILE_WRITE); // Attempt to open again
             if (!f) {
-                Serial.println("Still can't write to SD after remount");
+                Serial.printf("Still can't open file for writing after remount: %s (Attempt 2)\n", filename);
+                // sd_operation_failed is already true
+                File errorLog = SD_MMC.open("/sd_errors.txt", FILE_APPEND);
+                if (errorLog) {
+                    time_t now_log; time(&now_log);
+                    errorLog.printf("SD open failed (Attempt 2) at %s for file %s\n", ctime(&now_log), filename);
+                    errorLog.close();
+                }
+            } else {
+                Serial.printf("Successfully opened file after remount: %s\n", filename);
+                sd_operation_failed = false; // Clear error as open succeeded
             }
         }
     }
-    
-    if (f) {
-        f.write(out_buf, out_len);
-        f.close();
-        success = true;
-        photosCount++;
-        Serial.printf("Timelapse saved: %s (%u bytes)\n", filename, (unsigned)out_len);
-        
-        // Also print uptime and stats every 10 photos
-        if (photosCount % 10 == 0) {
-            unsigned long uptime = millis() / 1000; // seconds
-            Serial.printf("System uptime: %u days, %u hours, %u minutes, %u seconds\n", 
-                        uptime / 86400, (uptime % 86400) / 3600, 
-                        (uptime % 3600) / 60, uptime % 60);
-            Serial.printf("Photos taken since boot: %u\n", photosCount);
+
+    if (f) { // If file was successfully opened (either first or second attempt)
+        size_t bytes_written = f.write(out_buf, out_len);
+        if (bytes_written != out_len) {
+            Serial.printf("File write error: expected %u, wrote %u bytes to %s\n", (unsigned)out_len, (unsigned)bytes_written, filename);
+            sd_operation_failed = true;
+            File errorLog = SD_MMC.open("/sd_errors.txt", FILE_APPEND);
+            if (errorLog) {
+                time_t now_log; time(&now_log);
+                errorLog.printf("SD actual write failed at %s for file %s (wrote %u/%u)\n", ctime(&now_log), filename, (unsigned)bytes_written, (unsigned)out_len);
+                errorLog.close();
+            }
+        }
+
+        if (!f.close()) {
+            Serial.printf("File close error for %s\n", filename);
+            if (!sd_operation_failed) { // If no prior write error, this is a new error
+                 sd_operation_failed = true;
+                 File errorLog = SD_MMC.open("/sd_errors.txt", FILE_APPEND);
+                 if (errorLog) {
+                    time_t now_log; time(&now_log);
+                    errorLog.printf("SD close failed at %s for file %s\n", ctime(&now_log), filename);
+                    errorLog.close();
+                 }
+            }
+        }
+
+        if (!sd_operation_failed) {
+            success = true; // Mark overall success for this capture
+            photosCount++;
+            Serial.printf("Timelapse saved: %s (%u bytes)\n", filename, (unsigned)out_len);
+            
+            if (photosCount % 10 == 0) {
+                unsigned long uptime = millis() / 1000; // seconds
+                Serial.printf("System uptime: %u days, %u hours, %u minutes, %u seconds\n", 
+                            uptime / 86400, (uptime % 86400) / 3600, 
+                            (uptime % 3600) / 60, uptime % 60);
+                Serial.printf("Photos taken since boot: %u\n", photosCount);
+            }
+        }
+    } else { // f is NULL, meaning all attempts to open it failed.
+        Serial.printf("File %s could not be opened for writing. No write attempt made.\n", filename);
+        sd_operation_failed = true; // Ensure it's marked as failed
+    }
+
+    if (sd_operation_failed) {
+        Serial.println("An SD operation error occurred while trying to save the photo.");
+        // Attempt to write a minimal diagnostic file to test basic SD write functionality
+        File diagFile = SD_MMC.open("/sd_diag_write_test.txt", FILE_WRITE); // Overwrite each time
+        if (diagFile) {
+            time_t now_diag; time(&now_diag);
+            diagFile.printf("Minimal write test at %s after photo save failure for %s.\n", ctime(&now_diag), filename);
+            diagFile.close();
+            Serial.println("Successfully wrote diagnostic file: /sd_diag_write_test.txt");
+        } else {
+            Serial.println("CRITICAL: Failed to write diagnostic file /sd_diag_write_test.txt. SD card may be fully unwritable.");
+            File errorLog = SD_MMC.open("/sd_errors.txt", FILE_APPEND); // Final attempt to log this critical failure
+            if (errorLog) {
+                time_t now_log; time(&now_log);
+                errorLog.printf("CRITICAL: Failed to write sd_diag_write_test.txt at %s\n", ctime(&now_log));
+                errorLog.close();
+            }
         }
     }
 
@@ -488,7 +550,7 @@ void captureAndSaveTimelapse() {
         esp_camera_fb_return(fb);
     }
 
-    Serial.println("Timelapse: De-initializing camera after successful capture and save.");
+    Serial.println("Timelapse: De-initializing camera after capture attempt.");
     esp_camera_deinit();
 }
 
