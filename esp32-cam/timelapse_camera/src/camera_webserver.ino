@@ -17,7 +17,7 @@
 // Please uncomment one of the following lines to select your camera model.
 // =======================================================================
 // #define CAMERA_MODEL CAMERA_MODEL_AI_THINKER
-// #define CAMERA_MODEL CAMERA_MODEL_GENERIC_OV2640
+#define CAMERA_MODEL CAMERA_MODEL_GENERIC_OV2640
 
 // Define numeric values for camera models
 #define CAMERA_MODEL_AI_THINKER 1
