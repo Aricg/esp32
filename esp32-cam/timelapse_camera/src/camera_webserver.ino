@@ -77,6 +77,12 @@ const int NIGHT_SLEEP_START_MINUTE = 47; // 8:47 PM
 const int NIGHT_WAKE_UP_HOUR = 5;    // 5 AM
 const int NIGHT_WAKE_UP_MINUTE = 5;   // 5:05 AM
 
+// Daily Reset Logic
+static time_t last_daily_reset_epoch = 0; // Loaded from SD card in setup()
+const long MIN_SECONDS_BETWEEN_DAILY_RESETS = 23 * 3600L; // Approx 23 hours
+const int DAILY_RESET_WINDOW_MINUTES = 15; // Reset if within 15 mins after reset window opens
+const int DAILY_RESET_START_OFFSET_MINUTES = 5; // Wait 5 mins after NIGHT_WAKE_UP_TIME before reset window opens
+
 // Constants for reliability
 #define WDT_TIMEOUT_SECONDS 30      // Watchdog timeout in seconds
 #define WIFI_RECONNECT_INTERVAL 60000 // Try to reconnect every 60 seconds
@@ -273,6 +279,53 @@ void setup() {
     Serial.println("De-initializing camera as WiFi connection failed.");
     esp_camera_deinit();
   }
+
+  // Load last daily reset time after SD and NTP are up (if WiFi connected)
+  if (WiFi.status() == WL_CONNECTED) { // Ensure time might be valid for initialization
+    File resetTimeFile = SD_MMC.open("/last_daily_reset.txt", FILE_READ);
+    if (resetTimeFile) {
+        if (resetTimeFile.available()) { // Check if file has content
+            String line = resetTimeFile.readStringUntil('\n');
+            if (line.length() > 0) {
+                last_daily_reset_epoch = atol(line.c_str());
+                if (last_daily_reset_epoch > 0) {
+                    Serial.printf("Loaded last daily reset epoch: %lu (%s)\n", last_daily_reset_epoch, ctime(&last_daily_reset_epoch));
+                } else {
+                    Serial.println("Invalid epoch value in /last_daily_reset.txt. Will re-initialize.");
+                    last_daily_reset_epoch = 0; // Ensure it's reset if parsing failed
+                }
+            } else {
+                 Serial.println("/last_daily_reset.txt is empty. Will re-initialize.");
+            }
+        } else {
+            Serial.println("/last_daily_reset.txt is empty or unreadable. Will re-initialize.");
+        }
+        resetTimeFile.close();
+    } else {
+        Serial.println("Could not open /last_daily_reset.txt for reading. Will attempt to create/initialize.");
+    }
+
+    if (last_daily_reset_epoch == 0) { // File didn't exist, was empty, or content was invalid
+        time_t now_for_init;
+        time(&now_for_init);
+        if (now_for_init > 1672531200) { // If current time is valid (synced)
+            last_daily_reset_epoch = now_for_init; 
+            File newResetTimeFile = SD_MMC.open("/last_daily_reset.txt", FILE_WRITE);
+            if (newResetTimeFile) {
+                newResetTimeFile.print(last_daily_reset_epoch);
+                newResetTimeFile.close();
+                Serial.println("Initialized /last_daily_reset.txt with current time.");
+            } else {
+                Serial.println("Failed to open /last_daily_reset.txt for initialization write.");
+            }
+        } else {
+            Serial.println("Time not synced, cannot initialize /last_daily_reset.txt yet. Daily reset will be skipped until next valid time sync.");
+        }
+    }
+  } else {
+    Serial.println("WiFi not connected, cannot reliably initialize or check daily reset time based on wall clock. Daily reset will be skipped.");
+  }
+
   focusModeEndTime = millis() + FOCUS_MODE_DURATION_MS;
   Serial.printf("Focus mode will be active for %lu minutes.\n", FOCUS_MODE_DURATION_MS / (60 * 1000));
 }
@@ -728,22 +781,63 @@ void loop() {
   }
   
   // Perform a scheduled reset to prevent memory issues
-  if (millis() > AUTO_RESET_INTERVAL) {
-    Serial.println("Performing scheduled reset after 24 hours of operation");
-    
-    // Log the planned reset
-    File resetLog = SD_MMC.open("/resets.txt", FILE_APPEND);
-    if (resetLog) {
-      time_t now;
-      time(&now);
-      resetLog.printf("Planned reset at %s after %lu seconds of operation\n", 
-                    ctime(&now), millis() / 1000);
-      resetLog.printf("Photos taken: %lu\n", photosCount);
-      resetLog.close();
+  // New daily reset logic: at sunrise (with offset), if enough time has passed
+  time_t current_loop_epoch;
+  time(&current_loop_epoch);
+
+  // Only attempt daily reset if time is valid and last reset epoch is known (not 0)
+  if (current_loop_epoch > 1672531200 && last_daily_reset_epoch > 0) {
+    if ((current_loop_epoch - last_daily_reset_epoch) >= MIN_SECONDS_BETWEEN_DAILY_RESETS) {
+      struct tm timeinfo_loop;
+      localtime_r(&current_loop_epoch, &timeinfo_loop);
+
+      bool is_time_for_daily_reset = false;
+      
+      // Calculate the effective start time for the reset window, including the offset
+      int effective_reset_start_hour = NIGHT_WAKE_UP_HOUR;
+      int effective_reset_start_minute = NIGHT_WAKE_UP_MINUTE + DAILY_RESET_START_OFFSET_MINUTES;
+
+      // Normalize effective_reset_start_minute and effective_reset_start_hour
+      effective_reset_start_hour += effective_reset_start_minute / 60;
+      effective_reset_start_minute %= 60;
+      effective_reset_start_hour %= 24; 
+
+      // Calculate current minute of the day and window start/end minutes of the day
+      int current_minute_of_day = timeinfo_loop.tm_hour * 60 + timeinfo_loop.tm_min;
+      int window_opens_minute_of_day = effective_reset_start_hour * 60 + effective_reset_start_minute;
+      int window_closes_minute_of_day = window_opens_minute_of_day + DAILY_RESET_WINDOW_MINUTES;
+      
+      // Check if current time is within the reset window.
+      // This logic assumes the window does not cross midnight (true for a sunrise window like 5:05 AM + 5min offset + 15min duration).
+      if (current_minute_of_day >= window_opens_minute_of_day &&
+          current_minute_of_day < window_closes_minute_of_day) {
+          is_time_for_daily_reset = true;
+      }
+
+      if (is_time_for_daily_reset) {
+        Serial.printf("Performing scheduled daily reset. Current time: %s", ctime(&current_loop_epoch));
+        
+        File resetLog = SD_MMC.open("/resets.txt", FILE_APPEND);
+        if (resetLog) {
+          resetLog.printf("Planned daily reset at %s", ctime(&current_loop_epoch)); // ctime adds newline
+          resetLog.printf("Uptime for this session: %lu seconds.\n", millis() / 1000);
+          resetLog.printf("Photos taken this session: %lu\n", photosCount);
+          resetLog.close();
+        }
+        
+        // Update last_daily_reset.txt with the current time BEFORE restarting
+        File newResetTimeFile = SD_MMC.open("/last_daily_reset.txt", FILE_WRITE);
+        if (newResetTimeFile) {
+            newResetTimeFile.print(current_loop_epoch); // Log the time of this reset
+            newResetTimeFile.close();
+            Serial.println("Updated /last_daily_reset.txt with current time before reset.");
+        } else {
+            Serial.println("Failed to open /last_daily_reset.txt for update before reset.");
+        }
+        
+        delay(1000); // Small delay to help ensure files are written
+        ESP.restart();
+      }
     }
-    
-    // Small delay to ensure file is written
-    delay(1000);
-    ESP.restart();
   }
 }
