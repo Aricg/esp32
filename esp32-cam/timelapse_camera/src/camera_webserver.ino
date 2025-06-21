@@ -488,18 +488,9 @@ void captureAndSaveTimelapse() {
             }
         }
 
-        if (!f.close()) {
-            Serial.printf("File close error for %s\n", filename);
-            if (!sd_operation_failed) { // If no prior write error, this is a new error
-                 sd_operation_failed = true;
-                 File errorLog = SD_MMC.open("/sd_errors.txt", FILE_APPEND);
-                 if (errorLog) {
-                    time_t now_log; time(&now_log);
-                    errorLog.printf("SD close failed at %s for file %s\n", ctime(&now_log), filename);
-                    errorLog.close();
-                 }
-            }
-        }
+        // File::close() returns void, so we cannot check its return value directly.
+        // The success of f.write() is the primary indicator of a successful save.
+        f.close(); 
 
         if (!sd_operation_failed) {
             success = true; // Mark overall success for this capture
