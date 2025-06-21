@@ -316,8 +316,18 @@ void captureAndSaveTimelapse() {
     esp_task_wdt_reset(); // Reset watchdog
 
 #if CAMERA_MODEL == _MODEL_SELECT_GENERIC_OV2640
-    Serial.println("Timelapse (OV2640 specific logic): Adding pre-init delay...");
-    delay(500); // Add a delay for OV2640 to stabilize, may help with init after sleep
+    Serial.println("Timelapse (OV2640 specific logic): Power cycling camera and adding delay...");
+    #if defined(PWDN_GPIO_NUM) && PWDN_GPIO_NUM != -1
+        Serial.printf("Toggling PWDN pin: %d\n", PWDN_GPIO_NUM);
+        pinMode(PWDN_GPIO_NUM, OUTPUT);
+        digitalWrite(PWDN_GPIO_NUM, HIGH); // Power down camera
+        delay(100);                       // Keep it powered down for a moment
+        digitalWrite(PWDN_GPIO_NUM, LOW);  // Power up camera
+        delay(100);                       // Wait for camera to power up
+    #else
+        Serial.println("PWDN_GPIO_NUM not defined or -1, skipping PWDN toggle.");
+    #endif
+    delay(300); // Additional delay for OV2640 to stabilize after power-up, before init
 #endif
 
     Serial.println("Timelapse: Initializing camera...");
