@@ -60,8 +60,16 @@
 #endif
 
 const char* ntpServer = "pool.ntp.org";
-const long gmtOffset_sec = 0;       // adjust if you need local time
-const int daylightOffset_sec = 0;   // adjust if you have DST
+// Timezone for Montreal (Eastern Time: EST5EDT)
+// EST = UTC-5, EDT = UTC-4
+// DST starts on the second Sunday in March at 2 AM.
+// DST ends on the first Sunday in November at 2 AM.
+const char* timeZone = "EST5EDT,M3.2.0/2,M11.1.0/2"; 
+
+// gmtOffset_sec and daylightOffset_sec are no longer used directly with configTime
+// when a TZ string is set via setenv. They can be kept as 0 or removed if not used elsewhere.
+const long gmtOffset_sec = 0; 
+const int daylightOffset_sec = 0;
 
 // Constants for reliability
 #define WDT_TIMEOUT_SECONDS 30      // Watchdog timeout in seconds
